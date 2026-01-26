@@ -1,0 +1,4 @@
+aiogram>=3.4.1
+Django>=5.0.8
+psycopg[binary]>=3.1.18
+

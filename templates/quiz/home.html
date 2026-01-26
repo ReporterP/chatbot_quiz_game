@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <title>Quiz Dashboard</title>
+  </head>
+  <body>
+    <h1>Quiz Dashboard</h1>
+
+    <h2>Создать сессию</h2>
+    <form method="post">
+      {% csrf_token %}
+      <select name="quiz_id" required>
+        {% for quiz in quizzes %}
+          <option value="{{ quiz.id }}">{{ quiz.title }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Создать</button>
+    </form>
+
+    <h2>Сессии</h2>
+    <table border="1" cellpadding="6">
+      <thead>
+        <tr>
+          <th>Квиз</th>
+          <th>Код</th>
+          <th>Статус</th>
+          <th>Текущий вопрос</th>
+          <th>Экран</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for session in sessions %}
+          <tr>
+            <td><a href="{% url 'session_detail' session.id %}">{{ session.quiz.title }}</a></td>
+            <td>{{ session.join_code }}</td>
+            <td>{{ session.get_status_display }}</td>
+            <td>
+              {% if session.current_question %}
+                {{ session.current_question.text|truncatechars:60 }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'session_screen' session.join_code %}" target="_blank">Открыть</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">Пока нет сессий</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </body>
+</html>
+
