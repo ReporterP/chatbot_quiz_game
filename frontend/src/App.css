@@ -1167,3 +1167,263 @@
   background: rgba(255,255,255,0.1) !important;
   opacity: 0.5;
 }
+
+/* ===== MOBILE RESPONSIVE ===== */
+
+@media (max-width: 768px) {
+  /* Auth */
+  .auth-card {
+    padding: 24px 20px;
+  }
+  .auth-card h1 {
+    font-size: 22px;
+  }
+
+  /* Header */
+  .header {
+    padding: 0 16px;
+    height: 56px;
+  }
+  .header-logo {
+    font-size: 16px;
+  }
+  .header-user {
+    display: none;
+  }
+  .header-right {
+    gap: 8px;
+  }
+
+  /* Dashboard */
+  .dashboard {
+    padding: 16px;
+  }
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .dashboard-header h2 {
+    font-size: 20px;
+  }
+  .quiz-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .quiz-card {
+    padding: 16px;
+  }
+  .quiz-card-actions {
+    flex-wrap: wrap;
+  }
+
+  /* Quiz Edit */
+  .quiz-edit {
+    padding: 16px;
+  }
+  .quiz-edit-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .quiz-title-input {
+    font-size: 16px;
+  }
+  .category-section {
+    padding: 12px;
+  }
+  .category-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .cat-title-input {
+    width: 100%;
+  }
+  .question-card {
+    padding: 14px;
+  }
+  .question-card-header {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .question-form {
+    padding: 16px;
+  }
+  .option-row {
+    flex-wrap: wrap;
+  }
+  .question-form-actions {
+    flex-direction: column;
+  }
+  .question-form-actions .btn {
+    width: 100%;
+  }
+  .images-row {
+    gap: 6px;
+  }
+  .img-preview-wrap,
+  .img-preview,
+  .img-upload-btn {
+    width: 60px;
+    height: 60px;
+  }
+
+  /* Session page */
+  .session-header {
+    padding: 12px 16px;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .session-body {
+    padding: 16px;
+  }
+
+  /* Lobby */
+  .lobby h2 {
+    font-size: 22px;
+  }
+  .lobby .lobby-subtitle {
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+  .lobby-code-block {
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .lobby-code {
+    font-size: 36px;
+    letter-spacing: 8px;
+  }
+  .lobby-qr {
+    padding: 12px;
+    margin-bottom: 20px;
+  }
+  .lobby-qr svg,
+  .lobby-qr canvas {
+    width: 160px !important;
+    height: 160px !important;
+  }
+  .lobby-participants {
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+
+  /* Game screen */
+  .question-text {
+    font-size: 20px;
+    margin-bottom: 24px;
+  }
+  .game-options {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .game-option {
+    padding: 16px;
+    font-size: 15px;
+  }
+  .game-controls {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .btn-game {
+    width: 100%;
+    padding: 14px 24px;
+    font-size: 16px;
+  }
+
+  /* Game images */
+  .question-images-game {
+    gap: 8px;
+  }
+  .game-thumb {
+    width: 100px;
+    height: 75px;
+  }
+
+  /* Leaderboard */
+  .leaderboard h2 {
+    font-size: 24px;
+    margin-bottom: 24px;
+  }
+  .podium {
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .podium-item {
+    flex: 0 0 100px;
+  }
+  .podium-bar.first { height: 130px; }
+  .podium-bar.second { height: 100px; }
+  .podium-bar.third { height: 80px; }
+  .podium-place {
+    font-size: 24px;
+  }
+  .podium-name {
+    font-size: 12px;
+  }
+  .podium-score {
+    font-size: 11px;
+  }
+
+  /* Settings */
+  .settings-form {
+    max-width: 100%;
+  }
+
+  /* History */
+  .history-card-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 14px 16px;
+  }
+  .history-card-actions {
+    width: 100%;
+  }
+  .history-card-actions .btn {
+    flex: 1;
+  }
+  .history-meta {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .lb-table {
+    font-size: 13px;
+  }
+  .lb-table th,
+  .lb-table td {
+    padding: 6px 8px;
+  }
+  .pagination {
+    gap: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .auth-card {
+    padding: 20px 16px;
+  }
+  .lobby-code {
+    font-size: 28px;
+    letter-spacing: 6px;
+  }
+  .question-text {
+    font-size: 18px;
+  }
+  .podium-item {
+    flex: 0 0 80px;
+  }
+  .podium-bar.first { height: 110px; padding: 10px 8px; }
+  .podium-bar.second { height: 85px; padding: 10px 8px; }
+  .podium-bar.third { height: 65px; padding: 10px 8px; }
+  .podium-place {
+    font-size: 20px;
+  }
+  .podium-name {
+    font-size: 11px;
+  }
+}
