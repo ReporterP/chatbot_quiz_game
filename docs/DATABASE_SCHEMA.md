@@ -1,17 +1,17 @@
 # Quiz Game — Схема базы данных
 
-## ER-диаграмма (текстовая)
+## ER-диаграмма
 
 ```
 hosts ──< quizzes ──< categories ──< questions ──< options
-                                        │
-                                   question_images
-                        │
-                    sessions ──< participants
-                        │              │
-                        └──< answers ──┘
+                  │                      │
+                  │                 question_images
+                  │
+                  └──< sessions ──< participants
+                           │              │
+                           └──< answers ──┘
 
-telegram_users (привязка ника к Telegram ID)
+telegram_users (ники Telegram-пользователей, привязка к Telegram ID)
 ```
 
 ---
@@ -28,8 +28,6 @@ telegram_users (привязка ника к Telegram ID)
 | bot_link      | VARCHAR(255) | Ссылка на Telegram-бота      |
 | created_at    | TIMESTAMP    | Дата регистрации             |
 
----
-
 ### telegram_users (пользователи Telegram)
 | Поле         | Тип          | Описание                     |
 |--------------|--------------|------------------------------|
@@ -38,8 +36,6 @@ telegram_users (привязка ника к Telegram ID)
 | nickname     | VARCHAR(100) | Сохранённый ник              |
 | created_at   | TIMESTAMP    | Дата создания                |
 | updated_at   | TIMESTAMP    | Дата обновления              |
-
----
 
 ### quizzes (квизы)
 | Поле       | Тип          | Описание                     |
@@ -50,8 +46,6 @@ telegram_users (привязка ника к Telegram ID)
 | created_at | TIMESTAMP    | Дата создания                |
 | updated_at | TIMESTAMP    | Дата обновления              |
 
----
-
 ### categories (категории вопросов)
 | Поле       | Тип          | Описание                     |
 |------------|--------------|------------------------------|
@@ -60,18 +54,14 @@ telegram_users (привязка ника к Telegram ID)
 | title      | VARCHAR(255) | Название категории           |
 | order_num  | INT          | Порядковый номер             |
 
----
-
 ### questions (вопросы)
-| Поле        | Тип          | Описание                     |
-|-------------|--------------|------------------------------|
-| id          | BIGSERIAL PK | ID вопроса                   |
-| quiz_id     | BIGINT FK    | Квиз                         |
-| category_id | BIGINT FK    | Категория (nullable)         |
-| text        | TEXT         | Текст вопроса                |
-| order_num   | INT          | Порядковый номер в категории |
-
----
+| Поле        | Тип          | Описание                      |
+|-------------|--------------|-------------------------------|
+| id          | BIGSERIAL PK | ID вопроса                    |
+| quiz_id     | BIGINT FK    | Квиз                          |
+| category_id | BIGINT FK    | Категория (nullable)          |
+| text        | TEXT         | Текст вопроса                 |
+| order_num   | INT          | Порядковый номер в категории  |
 
 ### question_images (картинки вопросов)
 | Поле        | Тип          | Описание                     |
@@ -81,8 +71,6 @@ telegram_users (привязка ника к Telegram ID)
 | url         | VARCHAR(500) | Путь к файлу                 |
 | order_num   | INT          | Порядок отображения          |
 
----
-
 ### options (варианты ответа)
 | Поле        | Тип          | Описание                     |
 |-------------|--------------|------------------------------|
@@ -91,8 +79,6 @@ telegram_users (привязка ника к Telegram ID)
 | text        | VARCHAR(500) | Текст варианта               |
 | is_correct  | BOOLEAN      | Правильный ли вариант        |
 | color       | VARCHAR(7)   | HEX-цвет варианта            |
-
----
 
 ### sessions (сессии квиза)
 | Поле              | Тип           | Описание                                    |
@@ -105,8 +91,6 @@ telegram_users (привязка ника к Telegram ID)
 | current_question  | INT           | Индекс текущего вопроса                     |
 | created_at        | TIMESTAMP     | Дата создания                               |
 
----
-
 ### participants (участники)
 | Поле         | Тип          | Описание                        |
 |--------------|--------------|---------------------------------|
@@ -116,8 +100,6 @@ telegram_users (привязка ника к Telegram ID)
 | nickname     | VARCHAR(100) | Ник                             |
 | total_score  | INT          | Суммарные очки                  |
 | joined_at    | TIMESTAMP    | Время присоединения             |
-
----
 
 ### answers (ответы)
 | Поле           | Тип          | Описание                             |
@@ -132,3 +114,4 @@ telegram_users (привязка ника к Telegram ID)
 | answered_at    | TIMESTAMP    | Время ответа                         |
 
 **Изменение ответа**: участник может менять ответ пока статус сессии = `question`.
+При повторном `POST /answer` обновляется `option_id`, `is_correct`, `answered_at`.
