@@ -43,7 +43,12 @@ export default function QuizEditPage() {
   const [newCatTitle, setNewCatTitle] = useState('');
   const [addingQuestionCatId, setAddingQuestionCatId] = useState(null);
   const [editingId, setEditingId] = useState(null);
+  const [collapsedCats, setCollapsedCats] = useState({});
   const titleTimer = useRef(null);
+
+  const toggleCollapse = (catId) => {
+    setCollapsedCats((prev) => ({ ...prev, [catId]: !prev[catId] }));
+  };
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -217,29 +222,34 @@ export default function QuizEditPage() {
           <SortableContext items={categories.map((c) => `cat-${c.id}`)} strategy={verticalListSortingStrategy}>
             {categories.map((cat) => {
               const questions = [...(cat.questions || [])].sort((a, b) => a.order_num - b.order_num);
+              const isCollapsed = !!collapsedCats[cat.id];
               return (
                 <SortableItem key={cat.id} id={`cat-${cat.id}`}>
-                  <div className="category-section">
-                    <CategoryHeader cat={cat} onRename={handleRenameCat} onDelete={handleDeleteCategory} />
+                  <div className={`category-section${isCollapsed ? ' collapsed' : ''}`}>
+                    <CategoryHeader cat={cat} onRename={handleRenameCat} onDelete={handleDeleteCategory} collapsed={isCollapsed} onToggle={() => toggleCollapse(cat.id)} questionsCount={questions.length} />
 
-                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => handleQuestionDragEnd(cat.id, e)}>
-                      <SortableContext items={questions.map((q) => `q-${q.id}`)} strategy={verticalListSortingStrategy}>
-                        {questions.map((q) =>
-                          editingId === q.id ? (
-                            <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data)} onCancel={() => setEditingId(null)} />
-                          ) : (
-                            <SortableItem key={q.id} id={`q-${q.id}`}>
-                              <QuestionCard q={q} onEdit={() => setEditingId(q.id)} onDelete={() => handleDeleteQuestion(q.id)} />
-                            </SortableItem>
-                          )
+                    {!isCollapsed && (
+                      <>
+                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => handleQuestionDragEnd(cat.id, e)}>
+                          <SortableContext items={questions.map((q) => `q-${q.id}`)} strategy={verticalListSortingStrategy}>
+                            {questions.map((q) =>
+                              editingId === q.id ? (
+                                <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data)} onCancel={() => setEditingId(null)} />
+                              ) : (
+                                <SortableItem key={q.id} id={`q-${q.id}`}>
+                                  <QuestionCard q={q} onEdit={() => setEditingId(q.id)} onDelete={() => handleDeleteQuestion(q.id)} />
+                                </SortableItem>
+                              )
+                            )}
+                          </SortableContext>
+                        </DndContext>
+
+                        {addingQuestionCatId === cat.id ? (
+                          <QuestionForm orderNum={questions.length} onSave={(data) => handleSaveQuestion(cat.id, data)} onCancel={() => setAddingQuestionCatId(null)} />
+                        ) : (
+                          <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => setAddingQuestionCatId(cat.id)}>+ Вопрос</button>
                         )}
-                      </SortableContext>
-                    </DndContext>
-
-                    {addingQuestionCatId === cat.id ? (
-                      <QuestionForm orderNum={questions.length} onSave={(data) => handleSaveQuestion(cat.id, data)} onCancel={() => setAddingQuestionCatId(null)} />
-                    ) : (
-                      <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => setAddingQuestionCatId(cat.id)}>+ Вопрос</button>
+                      </>
                     )}
                   </div>
                 </SortableItem>
@@ -282,7 +292,7 @@ export default function QuizEditPage() {
   );
 }
 
-function CategoryHeader({ cat, onRename, onDelete }) {
+function CategoryHeader({ cat, onRename, onDelete, collapsed, onToggle, questionsCount }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(cat.title);
 
@@ -293,11 +303,15 @@ function CategoryHeader({ cat, onRename, onDelete }) {
 
   return (
     <div className="category-header">
-      {editing ? (
-        <input className="cat-title-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={save} onKeyDown={(e) => e.key === 'Enter' && save()} autoFocus />
-      ) : (
-        <h3 className="cat-title" onDoubleClick={() => setEditing(true)}>{cat.title}</h3>
-      )}
+      <div className="cat-title-row">
+        <button className={`collapse-toggle${collapsed ? ' collapsed' : ''}`} onClick={onToggle} title={collapsed ? 'Развернуть' : 'Свернуть'}>▶</button>
+        {editing ? (
+          <input className="cat-title-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={save} onKeyDown={(e) => e.key === 'Enter' && save()} autoFocus />
+        ) : (
+          <h3 className="cat-title" onDoubleClick={() => setEditing(true)}>{cat.title}</h3>
+        )}
+        {collapsed && <span className="cat-questions-badge">{questionsCount} вопр.</span>}
+      </div>
       <div style={{ display: 'flex', gap: 6 }}>
         <button className="btn btn-outline btn-sm" onClick={() => setEditing(true)}>✎</button>
         <button className="btn btn-danger btn-sm" onClick={() => onDelete(cat.id)}>✕</button>
