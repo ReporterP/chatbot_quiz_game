@@ -46,6 +46,8 @@ func main() {
 	sessionService := services.NewSessionService(db, scoringService)
 	tgUserService := services.NewTelegramUserService(db)
 
+	aiService := services.NewAIGenerateService(cfg.QwenAPIKey, cfg.QwenAPIURL, cfg.QwenModel)
+
 	authHandler := handlers.NewAuthHandler(authService)
 	quizHandler := handlers.NewQuizHandler(quizService)
 	questionHandler := handlers.NewQuestionHandler(quizService)
@@ -54,6 +56,7 @@ func main() {
 	settingsHandler := handlers.NewSettingsHandler(db)
 	tgUserHandler := handlers.NewTelegramUserHandler(tgUserService)
 	wsHandler := handlers.NewWSHandler(hub)
+	aiHandler := handlers.NewAIGenerateHandler(quizService, aiService)
 
 	r := gin.Default()
 
@@ -104,6 +107,8 @@ func main() {
 		quizzes := api.Group("/quizzes")
 		quizzes.Use(middleware.JWTAuth(authService))
 		{
+			quizzes.GET("/ai-status", aiHandler.CheckAI)
+			quizzes.POST("/generate", aiHandler.Generate)
 			quizzes.GET("", quizHandler.ListQuizzes)
 			quizzes.POST("", quizHandler.CreateQuiz)
 			quizzes.GET("/:id", quizHandler.GetQuiz)

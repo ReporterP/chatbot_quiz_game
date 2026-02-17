@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import { loadQuizzes } from '../store/quizSlice';
-import { createQuiz, deleteQuiz } from '../api/quizzes';
+import { createQuiz, deleteQuiz, checkAIStatus, generateQuiz } from '../api/quizzes';
 import { createSession } from '../api/sessions';
 import { getSettings } from '../api/settings';
 import './DashboardPage.css';
@@ -15,12 +15,20 @@ export default function DashboardPage() {
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [hasBotToken, setHasBotToken] = useState(null);
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState('');
 
   useEffect(() => {
     dispatch(loadQuizzes());
     getSettings()
       .then(({ data }) => setHasBotToken(!!data.bot_token))
       .catch(() => setHasBotToken(false));
+    checkAIStatus()
+      .then(({ data }) => setAiAvailable(data.available))
+      .catch(() => setAiAvailable(false));
   }, []);
 
   const handleCreate = async (e) => {
@@ -50,6 +58,27 @@ export default function DashboardPage() {
     }
   };
 
+  const handleAiGenerate = async () => {
+    if (!aiPrompt.trim()) return;
+    setAiGenerating(true);
+    setAiError('');
+    try {
+      const { data } = await generateQuiz(aiPrompt.trim());
+      const quizId = data.quiz?.id;
+      setShowAiModal(false);
+      setAiPrompt('');
+      if (quizId) {
+        navigate(`/quiz/${quizId}`);
+      } else {
+        dispatch(loadQuizzes());
+      }
+    } catch (err) {
+      setAiError(err.response?.data?.error || 'Ошибка генерации');
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
   return (
     <>
       <Header />
@@ -58,13 +87,18 @@ export default function DashboardPage() {
           <h2>Мои квизы</h2>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-outline btn-sm" onClick={() => navigate('/history')}>История сессий</button>
+            {aiAvailable && (
+              <button className="btn btn-outline btn-sm ai-btn" onClick={() => setShowAiModal(true)}>
+                AI Генерация
+              </button>
+            )}
             <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>+ Создать квиз</button>
           </div>
         </div>
 
         {hasBotToken === false && (
           <div className="bot-token-warning">
-            ⚠️ Для запуска квизов необходимо добавить токен Telegram-бота в{' '}
+            Для запуска квизов необходимо добавить токен Telegram-бота в{' '}
             <a href="/settings" onClick={(e) => { e.preventDefault(); navigate('/settings'); }}>настройках</a>
           </div>
         )}
@@ -122,6 +156,49 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {showAiModal && (
+        <div className="ai-modal-overlay" onClick={() => !aiGenerating && setShowAiModal(false)}>
+          <div className="ai-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>AI Генерация квиза</h3>
+            <p className="ai-modal-hint">
+              Опишите, какой квиз вы хотите создать. AI сгенерирует категории, вопросы, варианты ответов и цвета.
+            </p>
+            <textarea
+              className="ai-prompt-input"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="Например: Квиз про историю России, 3 категории по 5 вопросов, средняя сложность"
+              rows={4}
+              disabled={aiGenerating}
+              autoFocus
+            />
+            {aiError && <div className="error-msg">{aiError}</div>}
+            <div className="ai-modal-actions">
+              <button
+                className="btn btn-primary"
+                onClick={handleAiGenerate}
+                disabled={aiGenerating || !aiPrompt.trim()}
+              >
+                {aiGenerating ? 'Генерация...' : 'Сгенерировать'}
+              </button>
+              <button
+                className="btn btn-outline"
+                onClick={() => setShowAiModal(false)}
+                disabled={aiGenerating}
+              >
+                Отмена
+              </button>
+            </div>
+            {aiGenerating && (
+              <div className="ai-loading">
+                <div className="ai-spinner" />
+                <span>AI генерирует квиз, это может занять до минуты...</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

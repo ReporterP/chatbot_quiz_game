@@ -56,3 +56,9 @@ export const importQuiz = (quizId, file) => {
   form.append('file', file);
   return api.post(`/quizzes/${quizId}/import`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
 };
+
+export const checkAIStatus = () =>
+  api.get('/quizzes/ai-status');
+
+export const generateQuiz = (prompt) =>
+  api.post('/quizzes/generate', { prompt }, { timeout: 120000 });

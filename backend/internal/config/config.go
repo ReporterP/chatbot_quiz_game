@@ -13,6 +13,9 @@ type Config struct {
 	ServerPort     string
 	WebhookBaseURL string
 	PollInterval   string
+	QwenAPIKey     string
+	QwenAPIURL     string
+	QwenModel      string
 }
 
 func Load() *Config {
@@ -27,6 +30,9 @@ func Load() *Config {
 		ServerPort:     getEnv("SERVER_PORT", "8080"),
 		WebhookBaseURL: getEnv("WEBHOOK_BASE_URL", ""),
 		PollInterval:   getEnv("POLL_INTERVAL", "2"),
+		QwenAPIKey:     getEnv("QWEN_API_KEY", ""),
+		QwenAPIURL:     getEnv("QWEN_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+		QwenModel:      getEnv("QWEN_MODEL", "qwen-plus"),
 	}
 }
 
