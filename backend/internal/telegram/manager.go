@@ -135,7 +135,7 @@ func (m *BotManager) refreshTokens() {
 		client := NewClient(host.BotToken)
 		stateM := NewStateManager()
 		tracker := NewSessionTracker(client, stateM, m.sessionSvc, m.pollInterval)
-		handler := NewUpdateHandler(client, stateM, tracker, m.sessionSvc, m.tgUserSvc, m.hub)
+		handler := NewUpdateHandler(client, stateM, tracker, m.sessionSvc, m.tgUserSvc, m.hub, host.ID)
 
 		bot := &BotInstance{
 			Token:   host.BotToken,

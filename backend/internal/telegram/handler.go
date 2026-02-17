@@ -19,6 +19,7 @@ type UpdateHandler struct {
 	sessionSvc *services.SessionService
 	tgUserSvc  *services.TelegramUserService
 	hub        *ws.Hub
+	hostID     uint
 }
 
 func NewUpdateHandler(
@@ -28,6 +29,7 @@ func NewUpdateHandler(
 	sessionSvc *services.SessionService,
 	tgUserSvc *services.TelegramUserService,
 	hub *ws.Hub,
+	hostID uint,
 ) *UpdateHandler {
 	return &UpdateHandler{
 		client:     client,
@@ -36,6 +38,7 @@ func NewUpdateHandler(
 		sessionSvc: sessionSvc,
 		tgUserSvc:  tgUserSvc,
 		hub:        hub,
+		hostID:     hostID,
 	}
 }
 
@@ -99,7 +102,7 @@ func (h *UpdateHandler) cmdStart(msg *Message, userID, chatID int64, text string
 		firstName = msg.From.FirstName
 	}
 
-	user, created, err := h.tgUserSvc.GetOrCreate(userID, firstName)
+	user, created, err := h.tgUserSvc.GetOrCreate(userID, h.hostID, firstName)
 	var nickname string
 	if err == nil {
 		nickname = user.Nickname
@@ -137,7 +140,7 @@ func (h *UpdateHandler) onCode(userID, chatID int64, code, firstName string) {
 		return
 	}
 
-	user, created, err := h.tgUserSvc.GetOrCreate(userID, firstName)
+	user, created, err := h.tgUserSvc.GetOrCreate(userID, h.hostID, firstName)
 	var nickname string
 	if err == nil {
 		nickname = user.Nickname
@@ -159,7 +162,7 @@ func (h *UpdateHandler) onNickname(userID, chatID int64, nickname string) {
 		return
 	}
 
-	h.tgUserSvc.UpdateNickname(userID, nickname)
+	h.tgUserSvc.UpdateNickname(userID, h.hostID, nickname)
 
 	us := h.state.Get(userID)
 	code := us.Code
@@ -206,7 +209,7 @@ func (h *UpdateHandler) doJoin(userID, chatID int64, code, nickname string) {
 }
 
 func (h *UpdateHandler) cmdProfile(userID, chatID int64) {
-	user, _, err := h.tgUserSvc.GetOrCreate(userID, "Player")
+	user, _, err := h.tgUserSvc.GetOrCreate(userID, h.hostID, "Player")
 	if err != nil {
 		h.client.SendMessage(chatID, "Ошибка загрузки профиля", "", nil)
 		return
@@ -217,7 +220,7 @@ func (h *UpdateHandler) cmdProfile(userID, chatID int64) {
 }
 
 func (h *UpdateHandler) cmdHistory(userID, chatID int64) {
-	entries, err := h.tgUserSvc.GetHistory(userID)
+	entries, err := h.tgUserSvc.GetHistory(userID, h.hostID)
 	if err != nil || len(entries) == 0 {
 		h.client.SendMessage(chatID, "📊 У вас пока нет завершённых игр.", "", nil)
 		return
@@ -254,7 +257,7 @@ func (h *UpdateHandler) cmdNickname(userID, chatID int64, text string) {
 		return
 	}
 
-	user, err := h.tgUserSvc.UpdateNickname(userID, newNick)
+	user, err := h.tgUserSvc.UpdateNickname(userID, h.hostID, newNick)
 	if err != nil {
 		h.client.SendMessage(chatID, fmt.Sprintf("Ошибка: %s", err.Error()), "", nil)
 		return

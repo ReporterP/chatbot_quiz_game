@@ -16,14 +16,15 @@ func NewTelegramUserService(db *gorm.DB) *TelegramUserService {
 	return &TelegramUserService{db: db}
 }
 
-func (s *TelegramUserService) GetOrCreate(telegramID int64, nickname string) (*models.TelegramUser, bool, error) {
+func (s *TelegramUserService) GetOrCreate(telegramID int64, hostID uint, nickname string) (*models.TelegramUser, bool, error) {
 	var user models.TelegramUser
-	if err := s.db.Where("telegram_id = ?", telegramID).First(&user).Error; err == nil {
+	if err := s.db.Where("telegram_id = ? AND host_id = ?", telegramID, hostID).First(&user).Error; err == nil {
 		return &user, false, nil
 	}
 
 	user = models.TelegramUser{
 		TelegramID: telegramID,
+		HostID:     hostID,
 		Nickname:   nickname,
 	}
 	if err := s.db.Create(&user).Error; err != nil {
@@ -32,17 +33,17 @@ func (s *TelegramUserService) GetOrCreate(telegramID int64, nickname string) (*m
 	return &user, true, nil
 }
 
-func (s *TelegramUserService) Get(telegramID int64) (*models.TelegramUser, error) {
+func (s *TelegramUserService) Get(telegramID int64, hostID uint) (*models.TelegramUser, error) {
 	var user models.TelegramUser
-	if err := s.db.Where("telegram_id = ?", telegramID).First(&user).Error; err != nil {
+	if err := s.db.Where("telegram_id = ? AND host_id = ?", telegramID, hostID).First(&user).Error; err != nil {
 		return nil, err
 	}
 	return &user, nil
 }
 
-func (s *TelegramUserService) UpdateNickname(telegramID int64, nickname string) (*models.TelegramUser, error) {
+func (s *TelegramUserService) UpdateNickname(telegramID int64, hostID uint, nickname string) (*models.TelegramUser, error) {
 	var user models.TelegramUser
-	if err := s.db.Where("telegram_id = ?", telegramID).First(&user).Error; err != nil {
+	if err := s.db.Where("telegram_id = ? AND host_id = ?", telegramID, hostID).First(&user).Error; err != nil {
 		return nil, err
 	}
 
@@ -63,10 +64,12 @@ type GameHistoryEntry struct {
 	PlayedAt     time.Time `json:"played_at"`
 }
 
-func (s *TelegramUserService) GetHistory(telegramID int64) ([]GameHistoryEntry, error) {
+func (s *TelegramUserService) GetHistory(telegramID int64, hostID uint) ([]GameHistoryEntry, error) {
 	var participants []models.Participant
-	s.db.Where("telegram_id = ?", telegramID).
-		Order("joined_at DESC").
+	s.db.Joins("JOIN sessions ON sessions.id = participants.session_id").
+		Joins("JOIN quizzes ON quizzes.id = sessions.quiz_id").
+		Where("participants.telegram_id = ? AND quizzes.host_id = ?", telegramID, hostID).
+		Order("participants.joined_at DESC").
 		Find(&participants)
 
 	var entries []GameHistoryEntry

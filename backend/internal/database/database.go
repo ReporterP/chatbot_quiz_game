@@ -27,6 +27,9 @@ func Connect(cfg *config.Config) *gorm.DB {
 }
 
 func AutoMigrate(db *gorm.DB) {
+	// Drop old unique index on telegram_id (was global, now per-host)
+	db.Exec("DROP INDEX IF EXISTS idx_telegram_users_telegram_id")
+
 	err := db.AutoMigrate(
 		&models.Host{},
 		&models.TelegramUser{},

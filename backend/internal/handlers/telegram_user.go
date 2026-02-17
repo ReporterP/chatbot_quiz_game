@@ -28,6 +28,7 @@ func NewTelegramUserHandler(tgService *services.TelegramUserService) *TelegramUs
 func (h *TelegramUserHandler) GetOrCreateUser(c *gin.Context) {
 	var req struct {
 		TelegramID int64  `json:"telegram_id" binding:"required"`
+		HostID     uint   `json:"host_id" binding:"required"`
 		Nickname   string `json:"nickname"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -39,7 +40,7 @@ func (h *TelegramUserHandler) GetOrCreateUser(c *gin.Context) {
 		req.Nickname = "Player"
 	}
 
-	user, created, err := h.tgService.GetOrCreate(req.TelegramID, req.Nickname)
+	user, created, err := h.tgService.GetOrCreate(req.TelegramID, req.HostID, req.Nickname)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -68,6 +69,7 @@ func (h *TelegramUserHandler) UpdateNickname(c *gin.Context) {
 	}
 
 	var req struct {
+		HostID   uint   `json:"host_id" binding:"required"`
 		Nickname string `json:"nickname" binding:"required,min=1,max=100"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -75,7 +77,7 @@ func (h *TelegramUserHandler) UpdateNickname(c *gin.Context) {
 		return
 	}
 
-	user, err := h.tgService.UpdateNickname(tgID, req.Nickname)
+	user, err := h.tgService.UpdateNickname(tgID, req.HostID, req.Nickname)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		return
@@ -90,6 +92,7 @@ func (h *TelegramUserHandler) UpdateNickname(c *gin.Context) {
 // @Produce      json
 // @Param        X-Bot-API-Key header string true "Bot API Key"
 // @Param        telegram_id path int true "Telegram ID"
+// @Param        host_id query int true "Host ID"
 // @Success      200 {array} services.GameHistoryEntry
 // @Router       /api/v1/telegram-users/{telegram_id}/history [get]
 func (h *TelegramUserHandler) GetHistory(c *gin.Context) {
@@ -99,7 +102,13 @@ func (h *TelegramUserHandler) GetHistory(c *gin.Context) {
 		return
 	}
 
-	entries, err := h.tgService.GetHistory(tgID)
+	hostID, err := strconv.ParseUint(c.Query("host_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "host_id is required"})
+		return
+	}
+
+	entries, err := h.tgService.GetHistory(tgID, uint(hostID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
