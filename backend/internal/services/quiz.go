@@ -177,11 +177,17 @@ func (s *QuizService) ReorderQuiz(quizID, hostID uint, order ReorderInput) error
 		tx.Model(&models.Category{}).Where("id = ? AND quiz_id = ?", c.ID, quizID).Update("order_num", c.OrderNum)
 		for _, q := range c.Questions {
 			catID := c.ID
-			tx.Model(&models.Question{}).Where("id = ?", q.ID).Updates(map[string]interface{}{
+			tx.Model(&models.Question{}).Where("id = ? AND quiz_id = ?", q.ID, quizID).Updates(map[string]interface{}{
 				"order_num":   q.OrderNum,
 				"category_id": catID,
 			})
 		}
+	}
+	for _, q := range order.OrphanQuestions {
+		tx.Model(&models.Question{}).Where("id = ? AND quiz_id = ?", q.ID, quizID).Select("order_num", "category_id").Updates(map[string]interface{}{
+			"order_num":   q.OrderNum,
+			"category_id": nil,
+		})
 	}
 	tx.Commit()
 	return nil
@@ -426,7 +432,8 @@ type OptionInput struct {
 }
 
 type ReorderInput struct {
-	Categories []CategoryOrder `json:"categories"`
+	Categories      []CategoryOrder `json:"categories"`
+	OrphanQuestions []QuestionOrder `json:"orphan_questions"`
 }
 
 type CategoryOrder struct {

@@ -1,7 +1,7 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, useDroppable, DragOverlay } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import Header from '../components/Header';
@@ -12,16 +12,12 @@ import { createSession } from '../api/sessions';
 
 const PRESET_COLORS = ['#e21b3c', '#1368ce', '#d89e00', '#26890c', '#864cbf', '#0aa3b1'];
 
-function randomColor() {
-  return PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)];
-}
-
 function SortableItem({ id, children }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.4 : 1,
   };
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
@@ -29,6 +25,25 @@ function SortableItem({ id, children }) {
       {children}
     </div>
   );
+}
+
+function CategoryDropZone({ id, children, className }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} className={`${className}${isOver ? ' drop-active' : ''}`}>
+      {children}
+    </div>
+  );
+}
+
+function findContainerIn(containers, id) {
+  const s = String(id);
+  if (s.startsWith('drop-')) return s.replace('drop-', '');
+  if (s.startsWith('cat-')) return s.replace('cat-', '');
+  for (const [key, items] of Object.entries(containers)) {
+    if (items.includes(s)) return key;
+  }
+  return null;
 }
 
 export default function QuizEditPage() {
@@ -44,13 +59,21 @@ export default function QuizEditPage() {
   const [addingQuestionCatId, setAddingQuestionCatId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [collapsedCats, setCollapsedCats] = useState({});
+  const [containers, setContainers] = useState({});
+  const [activeId, setActiveId] = useState(null);
   const titleTimer = useRef(null);
+  const containersRef = useRef({});
+
+  useEffect(() => { containersRef.current = containers; }, [containers]);
 
   const toggleCollapse = (catId) => {
     setCollapsedCats((prev) => ({ ...prev, [catId]: !prev[catId] }));
   };
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
+  );
 
   useEffect(() => { dispatch(loadQuiz(id)); }, [id]);
   useEffect(() => {
@@ -62,11 +85,128 @@ export default function QuizEditPage() {
         (quiz.categories || []).forEach((c) => { map[c.id] = true; });
         return map;
       });
+      const c = {};
+      (quiz.categories || []).forEach(cat => {
+        c[String(cat.id)] = [...(cat.questions || [])]
+          .sort((a, b) => a.order_num - b.order_num)
+          .map(q => `q-${q.id}`);
+      });
+      c['orphan'] = [...(quiz.questions || [])]
+        .sort((a, b) => a.order_num - b.order_num)
+        .map(q => `q-${q.id}`);
+      setContainers(c);
     }
   }, [quiz]);
 
   const reload = useCallback(() => dispatch(loadQuiz(id)), [id]);
 
+  const categories = useMemo(() =>
+    [...(quiz?.categories || [])].sort((a, b) => a.order_num - b.order_num), [quiz]);
+
+  const questionsMap = useMemo(() => {
+    const map = {};
+    (quiz?.categories || []).forEach(cat => {
+      (cat.questions || []).forEach(q => { map[`q-${q.id}`] = q; });
+    });
+    (quiz?.questions || []).forEach(q => { map[`q-${q.id}`] = q; });
+    return map;
+  }, [quiz]);
+
+  const categoryIds = useMemo(() => categories.map(c => `cat-${c.id}`), [categories]);
+
+  const totalQuestions = useMemo(() =>
+    Object.values(containers).reduce((sum, items) => sum + items.length, 0), [containers]);
+
+  const buildPayload = (cs, cats) => ({
+    categories: cats.map((c, i) => ({
+      id: c.id,
+      order_num: i,
+      questions: (cs[String(c.id)] || []).map((qId, qi) => ({
+        id: Number(String(qId).replace('q-', '')),
+        order_num: qi,
+      })),
+    })),
+    orphan_questions: (cs['orphan'] || []).map((qId, qi) => ({
+      id: Number(String(qId).replace('q-', '')),
+      order_num: qi,
+    })),
+  });
+
+  // --- DnD handlers ---
+  const handleDragStart = useCallback((event) => {
+    setActiveId(String(event.active.id));
+  }, []);
+
+  const handleDragOver = useCallback((event) => {
+    const { active, over } = event;
+    if (!over) return;
+    const activeStr = String(active.id);
+    if (!activeStr.startsWith('q-')) return;
+
+    setContainers(prev => {
+      const ac = findContainerIn(prev, activeStr);
+      const oc = findContainerIn(prev, String(over.id));
+      if (!ac || !oc || ac === oc) return prev;
+
+      const activeItems = [...(prev[ac] || [])];
+      const overItems = [...(prev[oc] || [])];
+      const activeIndex = activeItems.indexOf(activeStr);
+      if (activeIndex === -1) return prev;
+
+      activeItems.splice(activeIndex, 1);
+      const overIndex = overItems.indexOf(String(over.id));
+      overItems.splice(overIndex >= 0 ? overIndex : overItems.length, 0, activeStr);
+
+      return { ...prev, [ac]: activeItems, [oc]: overItems };
+    });
+  }, []);
+
+  const handleDragEnd = useCallback(async (event) => {
+    const { active, over } = event;
+    setActiveId(null);
+    if (!over) return;
+
+    const activeStr = String(active.id);
+    const overStr = String(over.id);
+
+    if (activeStr.startsWith('cat-') && overStr.startsWith('cat-')) {
+      const cats = [...categories];
+      const oldIndex = cats.findIndex(c => `cat-${c.id}` === activeStr);
+      const newIndex = cats.findIndex(c => `cat-${c.id}` === overStr);
+      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+      const reordered = arrayMove(cats, oldIndex, newIndex);
+      const payload = buildPayload(containersRef.current, reordered);
+      await reorderQuiz(id, payload);
+      reload();
+      return;
+    }
+
+    if (activeStr.startsWith('q-')) {
+      let finalContainers;
+      setContainers(prev => {
+        let next = { ...prev };
+        const ac = findContainerIn(next, activeStr);
+        const oc = findContainerIn(next, overStr);
+        if (ac && oc && ac === oc && activeStr !== overStr) {
+          const items = [...next[ac]];
+          const oldIdx = items.indexOf(activeStr);
+          const newIdx = items.indexOf(overStr);
+          if (oldIdx !== -1 && newIdx !== -1 && oldIdx !== newIdx) {
+            next = { ...next, [ac]: arrayMove(items, oldIdx, newIdx) };
+          }
+        }
+        finalContainers = next;
+        return next;
+      });
+
+      const payload = buildPayload(finalContainers, categories);
+      await reorderQuiz(id, payload);
+      reload();
+    }
+  }, [categories, id, reload]);
+
+  // --- CRUD handlers ---
   const handleTitleChange = (val) => {
     setTitle(val);
     clearTimeout(titleTimer.current);
@@ -108,7 +248,8 @@ export default function QuizEditPage() {
     reload();
   };
 
-  const handleUpdateQuestion = async (questionId, data) => {
+  const handleUpdateQuestion = async (questionId, data, categoryId) => {
+    data.category_id = categoryId ?? null;
     await updateQuestion(questionId, data);
     setEditingId(null);
     reload();
@@ -156,59 +297,9 @@ export default function QuizEditPage() {
     e.target.value = '';
   };
 
-  const handleCatDragEnd = async (event) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-
-    const cats = [...(quiz.categories || [])].sort((a, b) => a.order_num - b.order_num);
-    const oldIndex = cats.findIndex((c) => `cat-${c.id}` === active.id);
-    const newIndex = cats.findIndex((c) => `cat-${c.id}` === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const reordered = arrayMove(cats, oldIndex, newIndex);
-    const payload = {
-      categories: reordered.map((c, i) => ({
-        id: c.id,
-        order_num: i,
-        questions: (c.questions || []).map((q, qi) => ({ id: q.id, order_num: qi })),
-      })),
-    };
-    await reorderQuiz(id, payload);
-    reload();
-  };
-
-  const handleQuestionDragEnd = async (catId, event) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-
-    const cat = (quiz.categories || []).find((c) => c.id === catId);
-    if (!cat) return;
-
-    const questions = [...(cat.questions || [])].sort((a, b) => a.order_num - b.order_num);
-    const oldIndex = questions.findIndex((q) => `q-${q.id}` === active.id);
-    const newIndex = questions.findIndex((q) => `q-${q.id}` === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const reordered = arrayMove(questions, oldIndex, newIndex);
-    const cats = (quiz.categories || []).sort((a, b) => a.order_num - b.order_num);
-    const payload = {
-      categories: cats.map((c) => ({
-        id: c.id,
-        order_num: c.order_num,
-        questions: c.id === catId
-          ? reordered.map((q, i) => ({ id: q.id, order_num: i }))
-          : (c.questions || []).map((q, i) => ({ id: q.id, order_num: i })),
-      })),
-    };
-    await reorderQuiz(id, payload);
-    reload();
-  };
-
   if (loading || !quiz) return <><Header /><div className="loading">Загрузка...</div></>;
 
-  const categories = [...(quiz.categories || [])].sort((a, b) => a.order_num - b.order_num);
-  const orphanQuestions = [...(quiz.questions || [])].sort((a, b) => a.order_num - b.order_num);
-  const totalQuestions = categories.reduce((sum, c) => sum + (c.questions?.length || 0), 0) + orphanQuestions.length;
+  const orphanIds = containers['orphan'] || [];
 
   return (
     <>
@@ -228,65 +319,85 @@ export default function QuizEditPage() {
           </label>
         </div>
 
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleCatDragEnd}>
-          <SortableContext items={categories.map((c) => `cat-${c.id}`)} strategy={verticalListSortingStrategy}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={categoryIds} strategy={verticalListSortingStrategy}>
             {categories.map((cat) => {
-              const questions = [...(cat.questions || [])].sort((a, b) => a.order_num - b.order_num);
+              const qIds = containers[String(cat.id)] || [];
               const isCollapsed = !!collapsedCats[cat.id];
               return (
                 <SortableItem key={cat.id} id={`cat-${cat.id}`}>
-                  <div className={`category-section${isCollapsed ? ' collapsed' : ''}`}>
-                    <CategoryHeader cat={cat} onRename={handleRenameCat} onDelete={handleDeleteCategory} collapsed={isCollapsed} onToggle={() => toggleCollapse(cat.id)} questionsCount={questions.length} />
-
+                  <CategoryDropZone id={`drop-${cat.id}`} className={`category-section${isCollapsed ? ' collapsed' : ''}`}>
+                    <CategoryHeader cat={cat} onRename={handleRenameCat} onDelete={handleDeleteCategory} collapsed={isCollapsed} onToggle={() => toggleCollapse(cat.id)} questionsCount={qIds.length} />
                     {!isCollapsed && (
                       <>
-                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => handleQuestionDragEnd(cat.id, e)}>
-                          <SortableContext items={questions.map((q) => `q-${q.id}`)} strategy={verticalListSortingStrategy}>
-                            {questions.map((q) =>
-                              editingId === q.id ? (
-                                <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data)} onCancel={() => setEditingId(null)} />
-                              ) : (
-                                <SortableItem key={q.id} id={`q-${q.id}`}>
-                                  <QuestionCard q={q} onEdit={() => setEditingId(q.id)} onDelete={() => handleDeleteQuestion(q.id)} />
-                                </SortableItem>
-                              )
-                            )}
-                          </SortableContext>
-                        </DndContext>
-
+                        <SortableContext items={qIds} strategy={verticalListSortingStrategy}>
+                          {qIds.map(qId => {
+                            const q = questionsMap[qId];
+                            if (!q) return null;
+                            return editingId === q.id ? (
+                              <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data, cat.id)} onCancel={() => setEditingId(null)} />
+                            ) : (
+                              <SortableItem key={q.id} id={qId}>
+                                <QuestionCard q={q} onEdit={() => setEditingId(q.id)} onDelete={() => handleDeleteQuestion(q.id)} />
+                              </SortableItem>
+                            );
+                          })}
+                        </SortableContext>
                         {addingQuestionCatId === cat.id ? (
-                          <QuestionForm orderNum={questions.length} onSave={(data) => handleSaveQuestion(cat.id, data)} onCancel={() => setAddingQuestionCatId(null)} />
+                          <QuestionForm orderNum={qIds.length} onSave={(data) => handleSaveQuestion(cat.id, data)} onCancel={() => setAddingQuestionCatId(null)} />
                         ) : (
                           <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => setAddingQuestionCatId(cat.id)}>+ Вопрос</button>
                         )}
                       </>
                     )}
-                  </div>
+                  </CategoryDropZone>
                 </SortableItem>
               );
             })}
           </SortableContext>
-        </DndContext>
 
-        {orphanQuestions.length > 0 && (
-          <div className="category-section" style={{ borderLeft: '4px solid #fdcb6e' }}>
+          <CategoryDropZone id="drop-orphan" className="category-section orphan-section">
             <div className="category-header">
               <h3 className="cat-title">Без категории</h3>
             </div>
-            {orphanQuestions.map((q) =>
-              editingId === q.id ? (
-                <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data)} onCancel={() => setEditingId(null)} />
-              ) : (
-                <QuestionCard key={q.id} q={q} onEdit={() => setEditingId(q.id)} onDelete={() => handleDeleteQuestion(q.id)} />
-              )
-            )}
+            <SortableContext items={orphanIds} strategy={verticalListSortingStrategy}>
+              {orphanIds.map(qId => {
+                const q = questionsMap[qId];
+                if (!q) return null;
+                return editingId === q.id ? (
+                  <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data, null)} onCancel={() => setEditingId(null)} />
+                ) : (
+                  <SortableItem key={q.id} id={qId}>
+                    <QuestionCard q={q} onEdit={() => setEditingId(q.id)} onDelete={() => handleDeleteQuestion(q.id)} />
+                  </SortableItem>
+                );
+              })}
+            </SortableContext>
             {addingQuestionCatId === 'orphan' ? (
-              <QuestionForm orderNum={orphanQuestions.length} onSave={(data) => handleSaveQuestion(null, data)} onCancel={() => setAddingQuestionCatId(null)} />
+              <QuestionForm orderNum={orphanIds.length} onSave={(data) => handleSaveQuestion(null, data)} onCancel={() => setAddingQuestionCatId(null)} />
             ) : (
-              <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => setAddingQuestionCatId('orphan')}>+ Вопрос (без категории)</button>
+              <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => setAddingQuestionCatId('orphan')}>+ Вопрос</button>
             )}
-          </div>
-        )}
+          </CategoryDropZone>
+
+          <DragOverlay>
+            {activeId && activeId.startsWith('q-') && questionsMap[activeId] ? (
+              <div className="question-card drag-overlay">
+                <h4>{questionsMap[activeId].text}</h4>
+              </div>
+            ) : activeId && activeId.startsWith('cat-') ? (
+              <div className="category-section drag-overlay" style={{ padding: '12px 16px' }}>
+                <h3 className="cat-title">{categories.find(c => `cat-${c.id}` === activeId)?.title}</h3>
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
 
         {addingCat ? (
           <form onSubmit={handleCreateCategory} style={{ display: 'flex', gap: 12, marginTop: 16 }}>
