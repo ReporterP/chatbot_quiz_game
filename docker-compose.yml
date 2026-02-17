@@ -32,6 +32,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       BOT_API_KEY: ${BOT_API_KEY}
       SERVER_PORT: ${SERVER_PORT}
+      WEBHOOK_BASE_URL: ${WEBHOOK_BASE_URL}
+      POLL_INTERVAL: ${POLL_INTERVAL:-2}
     volumes:
       - uploads:/uploads
     depends_on:
@@ -45,19 +47,6 @@ services:
     restart: unless-stopped
     ports:
       - "3000:80"
-    depends_on:
-      - backend
-
-  bot:
-    build:
-      context: ./bot
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      BOT_TOKEN: ${BOT_TOKEN}
-      API_BASE_URL: http://backend:${SERVER_PORT}
-      BOT_API_KEY: ${BOT_API_KEY}
-      POLL_INTERVAL: "2"
     depends_on:
       - backend
 

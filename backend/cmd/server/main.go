@@ -2,12 +2,15 @@ package main
 
 import (
 	"log"
+	"strconv"
+	"time"
 
 	"quiz-game-backend/internal/config"
 	"quiz-game-backend/internal/database"
 	"quiz-game-backend/internal/handlers"
 	"quiz-game-backend/internal/middleware"
 	"quiz-game-backend/internal/services"
+	"quiz-game-backend/internal/telegram"
 	"quiz-game-backend/internal/ws"
 
 	_ "quiz-game-backend/docs"
@@ -64,6 +67,24 @@ func main() {
 	r.Static("/uploads", "/uploads")
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	r.GET("/ws/session/:id", wsHandler.HandleWebSocket)
+
+	pollSec, _ := strconv.Atoi(cfg.PollInterval)
+	if pollSec <= 0 {
+		pollSec = 2
+	}
+	botManager := telegram.NewBotManager(
+		db, sessionService, tgUserService,
+		cfg.WebhookBaseURL, cfg.BotAPIKey,
+		time.Duration(pollSec)*time.Second,
+		30*time.Second,
+	)
+	if cfg.WebhookBaseURL != "" {
+		botManager.Start()
+		defer botManager.Stop()
+	} else {
+		log.Println("WEBHOOK_BASE_URL not set, bot manager disabled")
+	}
+	r.POST("/webhook/bot/:secret", botManager.HandleWebhook)
 
 	api := r.Group("/api/v1")
 	{
