@@ -7,7 +7,7 @@ import { CSS } from '@dnd-kit/utilities';
 import Header from '../components/Header';
 import QuestionForm from '../components/QuestionForm';
 import { loadQuiz } from '../store/quizSlice';
-import { updateQuiz, createCategory, updateCategory as apiUpdateCategory, deleteCategory as apiDeleteCategory, reorderQuiz, createQuestion, updateQuestion, deleteQuestion, addQuestionImage } from '../api/quizzes';
+import { updateQuiz, createCategory, updateCategory as apiUpdateCategory, deleteCategory as apiDeleteCategory, reorderQuiz, createQuestion, updateQuestion, deleteQuestion, addQuestionImage, exportQuiz, importQuiz } from '../api/quizzes';
 import { createSession } from '../api/sessions';
 
 const PRESET_COLORS = ['#e21b3c', '#1368ce', '#d89e00', '#26890c', '#864cbf', '#0aa3b1'];
@@ -115,6 +115,32 @@ export default function QuizEditPage() {
     }
   };
 
+  const handleExport = async (format) => {
+    try {
+      const { data } = await exportQuiz(id, format);
+      const blob = new Blob([data], { type: format === 'csv' ? 'text/csv' : 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${quiz?.title || 'quiz'}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert('Ошибка экспорта'); }
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const { data } = await importQuiz(id, file);
+      alert(`Импортировано вопросов: ${data.imported_questions}`);
+      reload();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Ошибка импорта');
+    }
+    e.target.value = '';
+  };
+
   const handleCatDragEnd = async (event) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -177,6 +203,14 @@ export default function QuizEditPage() {
           <button className="btn btn-outline btn-sm" onClick={() => navigate('/dashboard')}>← Назад</button>
           <input className="quiz-title-input" value={title} onChange={(e) => handleTitleChange(e.target.value)} placeholder="Название квиза" />
           <button className="btn btn-success btn-sm" onClick={handleLaunch} disabled={totalQuestions === 0}>Запустить</button>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+          <button className="btn btn-outline btn-sm" onClick={() => handleExport('json')}>Экспорт JSON</button>
+          <button className="btn btn-outline btn-sm" onClick={() => handleExport('csv')}>Экспорт CSV</button>
+          <label className="btn btn-outline btn-sm" style={{ cursor: 'pointer' }}>
+            Импорт
+            <input type="file" accept=".json,.csv" onChange={handleImport} style={{ display: 'none' }} />
+          </label>
         </div>
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleCatDragEnd}>

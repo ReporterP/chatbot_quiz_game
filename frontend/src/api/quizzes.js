@@ -47,3 +47,12 @@ export const addQuestionImage = (questionId, url) =>
 
 export const deleteQuestionImage = (imageId) =>
   api.delete(`/images/${imageId}`);
+
+export const exportQuiz = (quizId, format = 'json') =>
+  api.get(`/quizzes/${quizId}/export?format=${format}`, { responseType: 'blob' });
+
+export const importQuiz = (quizId, file) => {
+  const form = new FormData();
+  form.append('file', file);
+  return api.post(`/quizzes/${quizId}/import`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+};

@@ -112,6 +112,8 @@ func main() {
 			quizzes.POST("/:id/questions", questionHandler.CreateQuestion)
 			quizzes.POST("/:id/categories", questionHandler.CreateCategory)
 			quizzes.PUT("/:id/reorder", questionHandler.ReorderQuiz)
+			quizzes.GET("/:id/export", quizHandler.ExportQuiz)
+			quizzes.POST("/:id/import", quizHandler.ImportQuiz)
 		}
 
 		questions := api.Group("/questions")

@@ -337,6 +337,88 @@ func (s *QuizService) DeleteQuestionImage(imageID, hostID uint) error {
 	return s.db.Delete(&img).Error
 }
 
+type ImportInput struct {
+	Categories []ImportCategory
+	Questions  []ImportQuestion
+}
+
+type ImportCategory struct {
+	Title     string
+	Questions []ImportQuestion
+}
+
+type ImportQuestion struct {
+	Text    string
+	Options []OptionInput
+}
+
+func (s *QuizService) ImportQuestions(quizID, hostID uint, input ImportInput) (int, error) {
+	var quiz models.Quiz
+	if err := s.db.Where("id = ? AND host_id = ?", quizID, hostID).First(&quiz).Error; err != nil {
+		return 0, errors.New("quiz not found")
+	}
+
+	var maxCatOrder int
+	s.db.Model(&models.Category{}).Where("quiz_id = ?", quizID).Select("COALESCE(MAX(order_num), -1)").Scan(&maxCatOrder)
+
+	var maxQOrder int
+	s.db.Model(&models.Question{}).Where("quiz_id = ? AND category_id IS NULL", quizID).Select("COALESCE(MAX(order_num), -1)").Scan(&maxQOrder)
+
+	tx := s.db.Begin()
+	count := 0
+
+	for _, cat := range input.Categories {
+		maxCatOrder++
+		dbCat := models.Category{QuizID: quizID, Title: cat.Title, OrderNum: maxCatOrder}
+		if err := tx.Create(&dbCat).Error; err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+
+		for qIdx, q := range cat.Questions {
+			if len(q.Options) < 2 {
+				continue
+			}
+			dbQ := models.Question{QuizID: quizID, CategoryID: &dbCat.ID, Text: q.Text, OrderNum: qIdx}
+			if err := tx.Create(&dbQ).Error; err != nil {
+				tx.Rollback()
+				return 0, err
+			}
+			for _, o := range q.Options {
+				opt := models.Option{QuestionID: dbQ.ID, Text: o.Text, IsCorrect: o.IsCorrect, Color: o.Color}
+				if err := tx.Create(&opt).Error; err != nil {
+					tx.Rollback()
+					return 0, err
+				}
+			}
+			count++
+		}
+	}
+
+	for _, q := range input.Questions {
+		if len(q.Options) < 2 {
+			continue
+		}
+		maxQOrder++
+		dbQ := models.Question{QuizID: quizID, Text: q.Text, OrderNum: maxQOrder}
+		if err := tx.Create(&dbQ).Error; err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+		for _, o := range q.Options {
+			opt := models.Option{QuestionID: dbQ.ID, Text: o.Text, IsCorrect: o.IsCorrect, Color: o.Color}
+			if err := tx.Create(&opt).Error; err != nil {
+				tx.Rollback()
+				return 0, err
+			}
+		}
+		count++
+	}
+
+	tx.Commit()
+	return count, nil
+}
+
 type OptionInput struct {
 	Text      string `json:"text"`
 	IsCorrect bool   `json:"is_correct"`
