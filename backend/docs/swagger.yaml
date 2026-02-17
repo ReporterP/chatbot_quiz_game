@@ -1,0 +1,845 @@
+basePath: /
+definitions:
+  internal_handlers.AuthResponse:
+    properties:
+      token:
+        example: eyJhbGciOiJIUzI1NiIs...
+        type: string
+    type: object
+  internal_handlers.CreateQuestionRequest:
+    properties:
+      options:
+        items:
+          $ref: '#/definitions/quiz-game-backend_internal_services.OptionInput'
+        maxItems: 4
+        minItems: 2
+        type: array
+      order_num:
+        example: 1
+        minimum: 1
+        type: integer
+      text:
+        example: What is 2+2?
+        type: string
+    required:
+    - options
+    - order_num
+    - text
+    type: object
+  internal_handlers.CreateQuizRequest:
+    properties:
+      title:
+        example: My Quiz
+        maxLength: 255
+        minLength: 1
+        type: string
+    required:
+    - title
+    type: object
+  internal_handlers.CreateSessionRequest:
+    properties:
+      quiz_id:
+        example: 1
+        type: integer
+    required:
+    - quiz_id
+    type: object
+  internal_handlers.ErrorResponse:
+    properties:
+      error:
+        example: something went wrong
+        type: string
+    type: object
+  internal_handlers.JoinSessionRequest:
+    properties:
+      code:
+        example: "123456"
+        type: string
+      nickname:
+        example: Player1
+        maxLength: 100
+        minLength: 1
+        type: string
+      telegram_id:
+        example: 123456789
+        type: integer
+    required:
+    - code
+    - nickname
+    - telegram_id
+    type: object
+  internal_handlers.LoginRequest:
+    properties:
+      password:
+        example: password123
+        type: string
+      username:
+        example: host1
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  internal_handlers.MessageResponse:
+    properties:
+      message:
+        example: operation successful
+        type: string
+    type: object
+  internal_handlers.Question:
+    properties:
+      id:
+        type: integer
+      options:
+        items:
+          $ref: '#/definitions/quiz-game-backend_internal_models.Option'
+        type: array
+      order_num:
+        type: integer
+      quiz_id:
+        type: integer
+      text:
+        type: string
+    type: object
+  internal_handlers.Quiz:
+    properties:
+      created_at:
+        type: string
+      host_id:
+        type: integer
+      id:
+        type: integer
+      questions:
+        items:
+          $ref: '#/definitions/quiz-game-backend_internal_models.Question'
+        type: array
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  internal_handlers.RegisterRequest:
+    properties:
+      password:
+        example: password123
+        minLength: 6
+        type: string
+      username:
+        example: host1
+        maxLength: 100
+        minLength: 3
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  internal_handlers.SubmitAnswerRequest:
+    properties:
+      option_id:
+        example: 1
+        type: integer
+      telegram_id:
+        example: 123456789
+        type: integer
+    required:
+    - option_id
+    - telegram_id
+    type: object
+  internal_handlers.UpdateQuizRequest:
+    properties:
+      title:
+        example: Updated Quiz
+        maxLength: 255
+        minLength: 1
+        type: string
+    required:
+    - title
+    type: object
+  quiz-game-backend_internal_models.Option:
+    properties:
+      id:
+        type: integer
+      is_correct:
+        type: boolean
+      question_id:
+        type: integer
+      text:
+        type: string
+    type: object
+  quiz-game-backend_internal_models.Participant:
+    properties:
+      id:
+        type: integer
+      joined_at:
+        type: string
+      nickname:
+        type: string
+      session_id:
+        type: integer
+      telegram_id:
+        type: integer
+      total_score:
+        type: integer
+    type: object
+  quiz-game-backend_internal_models.Question:
+    properties:
+      id:
+        type: integer
+      options:
+        items:
+          $ref: '#/definitions/quiz-game-backend_internal_models.Option'
+        type: array
+      order_num:
+        type: integer
+      quiz_id:
+        type: integer
+      text:
+        type: string
+    type: object
+  quiz-game-backend_internal_models.Quiz:
+    properties:
+      created_at:
+        type: string
+      host_id:
+        type: integer
+      id:
+        type: integer
+      questions:
+        items:
+          $ref: '#/definitions/quiz-game-backend_internal_models.Question'
+        type: array
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  quiz-game-backend_internal_services.JoinResult:
+    properties:
+      participant:
+        $ref: '#/definitions/quiz-game-backend_internal_models.Participant'
+      session_id:
+        type: integer
+    type: object
+  quiz-game-backend_internal_services.LeaderboardEntry:
+    properties:
+      nickname:
+        type: string
+      position:
+        type: integer
+      telegram_id:
+        type: integer
+      total_score:
+        type: integer
+    type: object
+  quiz-game-backend_internal_services.OptionInput:
+    properties:
+      is_correct:
+        type: boolean
+      text:
+        type: string
+    type: object
+  quiz-game-backend_internal_services.OptionResponse:
+    properties:
+      id:
+        type: integer
+      is_correct:
+        type: boolean
+      text:
+        type: string
+    type: object
+  quiz-game-backend_internal_services.ParticipantResult:
+    properties:
+      answered:
+        type: boolean
+      is_correct:
+        type: boolean
+      option_id:
+        type: integer
+      question_id:
+        type: integer
+      score:
+        type: integer
+      total_score:
+        type: integer
+    type: object
+  quiz-game-backend_internal_services.QuestionResponse:
+    properties:
+      id:
+        type: integer
+      options:
+        items:
+          $ref: '#/definitions/quiz-game-backend_internal_services.OptionResponse'
+        type: array
+      order_num:
+        type: integer
+      text:
+        type: string
+    type: object
+  quiz-game-backend_internal_services.SessionState:
+    properties:
+      answer_count:
+        type: integer
+      code:
+        type: string
+      created_at:
+        type: string
+      current_question:
+        type: integer
+      current_question_data:
+        $ref: '#/definitions/quiz-game-backend_internal_services.QuestionResponse'
+      host_id:
+        type: integer
+      id:
+        type: integer
+      participants:
+        items:
+          $ref: '#/definitions/quiz-game-backend_internal_models.Participant'
+        type: array
+      quiz:
+        $ref: '#/definitions/quiz-game-backend_internal_models.Quiz'
+      quiz_id:
+        type: integer
+      status:
+        type: string
+      total_questions:
+        type: integer
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API for quiz game with host management and Telegram bot integration
+  title: Quiz Game API
+  version: "1.0"
+paths:
+  /api/v1/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate host and return JWT token
+      parameters:
+      - description: Login data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.AuthResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Login as host
+      tags:
+      - auth
+  /api/v1/auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Create a new host account and return JWT token
+      parameters:
+      - description: Registration data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_handlers.AuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Register a new host
+      tags:
+      - auth
+  /api/v1/questions/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a question and its options
+      parameters:
+      - description: Question ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.MessageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a question
+      tags:
+      - questions
+    put:
+      consumes:
+      - application/json
+      description: Update question text, order, and options
+      parameters:
+      - description: Question ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Question data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateQuestionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.Question'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a question
+      tags:
+      - questions
+  /api/v1/quizzes:
+    get:
+      description: Get all quizzes for the authenticated host
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_handlers.Quiz'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List all quizzes
+      tags:
+      - quizzes
+    post:
+      consumes:
+      - application/json
+      description: Create a new quiz for the authenticated host
+      parameters:
+      - description: Quiz data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateQuizRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_handlers.Quiz'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a quiz
+      tags:
+      - quizzes
+  /api/v1/quizzes/{id}:
+    delete:
+      description: Delete a quiz and all its questions
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.MessageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a quiz
+      tags:
+      - quizzes
+    get:
+      description: Get quiz with all questions and options
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.Quiz'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a quiz
+      tags:
+      - quizzes
+    put:
+      consumes:
+      - application/json
+      description: Update quiz title
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Quiz data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.UpdateQuizRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.Quiz'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a quiz
+      tags:
+      - quizzes
+  /api/v1/quizzes/{id}/questions:
+    post:
+      consumes:
+      - application/json
+      description: Create a new question with options (2-4 options, exactly one correct)
+      parameters:
+      - description: Quiz ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Question data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateQuestionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_handlers.Question'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add a question to a quiz
+      tags:
+      - questions
+  /api/v1/sessions:
+    post:
+      consumes:
+      - application/json
+      description: Start a new quiz session, generates a join code
+      parameters:
+      - description: Session data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateSessionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/quiz-game-backend_internal_services.SessionState'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a quiz session
+      tags:
+      - sessions
+  /api/v1/sessions/{id}:
+    get:
+      description: Get current state of a quiz session including current question
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/quiz-game-backend_internal_services.SessionState'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get session state
+      tags:
+      - sessions
+  /api/v1/sessions/{id}/answer:
+    post:
+      consumes:
+      - application/json
+      description: Submit an answer to the current question
+      parameters:
+      - description: Bot API Key
+        in: header
+        name: X-Bot-API-Key
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Answer data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.SubmitAnswerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.MessageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Submit an answer
+      tags:
+      - participants
+  /api/v1/sessions/{id}/leaderboard:
+    get:
+      description: Get session leaderboard sorted by score
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/quiz-game-backend_internal_services.LeaderboardEntry'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get leaderboard
+      tags:
+      - sessions
+  /api/v1/sessions/{id}/my-result:
+    get:
+      description: Get whether the participant answered correctly and their score
+      parameters:
+      - description: Bot API Key
+        in: header
+        name: X-Bot-API-Key
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Telegram ID
+        in: query
+        name: telegram_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/quiz-game-backend_internal_services.ParticipantResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Get participant result for current question
+      tags:
+      - participants
+  /api/v1/sessions/{id}/next:
+    post:
+      description: Start quiz or advance to the next question. Finishes quiz if no
+        more questions.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/quiz-game-backend_internal_services.SessionState'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Move to next question
+      tags:
+      - sessions
+  /api/v1/sessions/{id}/reveal:
+    post:
+      description: Show correct answer and calculate scores for current question
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/quiz-game-backend_internal_services.SessionState'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Reveal the correct answer
+      tags:
+      - sessions
+  /api/v1/sessions/join:
+    post:
+      consumes:
+      - application/json
+      description: Join a session by code with telegram ID and nickname
+      parameters:
+      - description: Bot API Key
+        in: header
+        name: X-Bot-API-Key
+        required: true
+        type: string
+      - description: Join data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.JoinSessionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/quiz-game-backend_internal_services.JoinResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Join a quiz session
+      tags:
+      - participants
+  /ws/session/{id}:
+    get:
+      description: Connect via WebSocket to receive real-time session updates
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses: {}
+      summary: WebSocket connection for session updates
+      tags:
+      - websocket
+securityDefinitions:
+  BearerAuth:
+    description: Enter "Bearer {token}"
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
