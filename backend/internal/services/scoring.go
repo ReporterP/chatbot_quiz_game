@@ -12,24 +12,34 @@ func NewScoringService() *ScoringService {
 	return &ScoringService{}
 }
 
-func (s *ScoringService) CalculateScores(answers []models.Answer) []models.Answer {
-	var correct []int
-	for i, a := range answers {
-		if a.IsCorrect {
-			correct = append(correct, i)
-		}
+func (s *ScoringService) CalculateScores(answers []models.Answer, totalParticipants int) []models.Answer {
+	if len(answers) == 0 {
+		return answers
 	}
 
-	sort.Slice(correct, func(a, b int) bool {
-		return answers[correct[a]].AnsweredAt.Before(answers[correct[b]].AnsweredAt)
+	sort.Slice(answers, func(a, b int) bool {
+		return answers[a].AnsweredAt.Before(answers[b].AnsweredAt)
 	})
 
-	for rank, idx := range correct {
-		bonus := 50 - rank
-		if bonus < 1 {
-			bonus = 1
+	maxBonus := totalParticipants * 10
+	if maxBonus < 10 {
+		maxBonus = 10
+	}
+	step := 10
+
+	for rank, i := 0, 0; i < len(answers); i++ {
+		rank = i + 1
+		speedBonus := maxBonus - (rank-1)*step
+		if speedBonus < 10 {
+			speedBonus = 10
 		}
-		answers[idx].Score = 100 + bonus
+
+		correctBonus := 0
+		if answers[i].IsCorrect {
+			correctBonus = 100
+		}
+
+		answers[i].Score = correctBonus + speedBonus
 	}
 
 	return answers

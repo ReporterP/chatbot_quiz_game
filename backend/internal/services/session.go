@@ -216,15 +216,16 @@ func (s *SessionService) RevealAnswer(sessionID, hostID uint) (*SessionState, er
 		Order("answered_at ASC").
 		Find(&answers)
 
-	answers = s.scoring.CalculateScores(answers)
+	var totalParticipants int64
+	s.db.Model(&models.Participant{}).Where("session_id = ?", sessionID).Count(&totalParticipants)
+
+	answers = s.scoring.CalculateScores(answers, int(totalParticipants))
 
 	tx := s.db.Begin()
 	for _, a := range answers {
 		tx.Model(&models.Answer{}).Where("id = ?", a.ID).Update("score", a.Score)
-		if a.Score > 0 {
-			tx.Model(&models.Participant{}).Where("id = ?", a.ParticipantID).
-				Update("total_score", gorm.Expr("total_score + ?", a.Score))
-		}
+		tx.Model(&models.Participant{}).Where("id = ?", a.ParticipantID).
+			Update("total_score", gorm.Expr("total_score + ?", a.Score))
 	}
 
 	session.Status = models.SessionStatusRevealed
