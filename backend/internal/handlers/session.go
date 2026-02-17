@@ -179,6 +179,38 @@ func (h *SessionHandler) NextQuestion(c *gin.Context) {
 	c.JSON(http.StatusOK, state)
 }
 
+// ForceFinish godoc
+// @Summary      Force finish a session
+// @Description  Immediately end an active session
+// @Tags         sessions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path int true "Session ID"
+// @Success      200 {object} services.SessionState
+// @Failure      400 {object} ErrorResponse
+// @Router       /api/v1/sessions/{id}/finish [post]
+func (h *SessionHandler) ForceFinish(c *gin.Context) {
+	hostID := c.GetUint("host_id")
+	sessionID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid session id"})
+		return
+	}
+
+	state, err := h.sessionService.ForceFinish(uint(sessionID), hostID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	h.hub.Broadcast(uint(sessionID), ws.WSMessage{
+		Type: "finished",
+		Data: state,
+	})
+
+	c.JSON(http.StatusOK, state)
+}
+
 // GetLeaderboard godoc
 // @Summary      Get leaderboard
 // @Description  Get session leaderboard sorted by score

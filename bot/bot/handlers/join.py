@@ -9,7 +9,7 @@ router = Router()
 
 
 @router.message(QuizStates.enter_code)
-async def on_code(message: types.Message, state: FSMContext, api: ApiClient):
+async def on_code(message: types.Message, state: FSMContext, api: ApiClient, tracker):
     code = message.text.strip()
 
     if not code.isdigit() or len(code) != 6:
@@ -27,7 +27,7 @@ async def on_code(message: types.Message, state: FSMContext, api: ApiClient):
 
     if nickname and not created:
         await state.update_data(code=code, nickname=nickname)
-        await _join_session(message, state, api, code, nickname)
+        await _join_session(message, state, api, code, nickname, tracker)
     else:
         await state.update_data(code=code)
         await state.set_state(QuizStates.enter_nickname)

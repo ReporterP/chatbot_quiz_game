@@ -10,7 +10,7 @@ router = Router()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: types.Message, state: FSMContext, api: ApiClient, command: CommandObject):
+async def cmd_start(message: types.Message, state: FSMContext, api: ApiClient, command: CommandObject, tracker):
     await state.clear()
 
     try:
@@ -26,7 +26,7 @@ async def cmd_start(message: types.Message, state: FSMContext, api: ApiClient, c
         code = command.args.strip()
         if nickname and not created:
             await state.update_data(code=code, nickname=nickname)
-            await _do_join(message, state, api, code, nickname)
+            await _do_join(message, state, api, code, nickname, tracker)
         else:
             await state.update_data(code=code)
             await state.set_state(QuizStates.enter_nickname)
@@ -121,8 +121,7 @@ async def on_change_nickname(message: types.Message, api: ApiClient):
         await message.answer(f"Ошибка: {e}")
 
 
-async def _do_join(message, state, api, code, nickname):
-    tracker = state.get("tracker") if hasattr(state, "get") else None
+async def _do_join(message, state, api, code, nickname, tracker=None):
     try:
         result = await api.join_session(code, message.from_user.id, nickname)
     except ApiError as e:
@@ -137,9 +136,15 @@ async def _do_join(message, state, api, code, nickname):
     await state.update_data(session_id=session_id, nickname=nickname)
     await state.set_state(QuizStates.in_session)
 
-    await message.answer(
+    msg = await message.answer(
         f"🎮 Вы подключились к квизу!\n\n"
         f"Никнейм: <b>{nickname}</b>\n"
         f"Ожидайте начала игры...",
         parse_mode="HTML",
     )
+
+    if tracker:
+        await tracker.add_participant(session_id, message.from_user.id, message.chat.id)
+        info = tracker.sessions.get(session_id)
+        if info and message.from_user.id in info.participants:
+            info.participants[message.from_user.id].message_id = msg.message_id

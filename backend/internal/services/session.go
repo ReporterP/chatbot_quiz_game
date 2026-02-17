@@ -234,6 +234,22 @@ func (s *SessionService) RevealAnswer(sessionID, hostID uint) (*SessionState, er
 	return s.GetSession(sessionID)
 }
 
+func (s *SessionService) ForceFinish(sessionID, hostID uint) (*SessionState, error) {
+	var session models.Session
+	if err := s.db.Where("id = ? AND host_id = ?", sessionID, hostID).First(&session).Error; err != nil {
+		return nil, errors.New("session not found")
+	}
+
+	if session.Status == models.SessionStatusFinished {
+		return nil, errors.New("session already finished")
+	}
+
+	session.Status = models.SessionStatusFinished
+	s.db.Save(&session)
+
+	return s.GetSession(sessionID)
+}
+
 func (s *SessionService) GetLeaderboard(sessionID uint) ([]LeaderboardEntry, error) {
 	var participants []models.Participant
 	if err := s.db.Where("session_id = ?", sessionID).

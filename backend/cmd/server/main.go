@@ -127,7 +127,8 @@ func main() {
 			sessions.GET("/:id", middleware.FlexAuth(authService, cfg.BotAPIKey), sessionHandler.GetSession)
 			sessions.POST("/:id/reveal", middleware.JWTAuth(authService), sessionHandler.RevealAnswer)
 			sessions.POST("/:id/next", middleware.JWTAuth(authService), sessionHandler.NextQuestion)
-			sessions.GET("/:id/leaderboard", middleware.FlexAuth(authService, cfg.BotAPIKey), sessionHandler.GetLeaderboard)
+			sessions.POST("/:id/finish", middleware.JWTAuth(authService), sessionHandler.ForceFinish)
+		sessions.GET("/:id/leaderboard", middleware.FlexAuth(authService, cfg.BotAPIKey), sessionHandler.GetLeaderboard)
 
 			sessions.POST("/join", middleware.BotAuth(cfg.BotAPIKey), participantHandler.JoinSession)
 			sessions.POST("/:id/answer", middleware.BotAuth(cfg.BotAPIKey), participantHandler.SubmitAnswer)

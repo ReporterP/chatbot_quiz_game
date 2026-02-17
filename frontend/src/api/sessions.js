@@ -17,3 +17,6 @@ export const nextQuestion = (id) =>
 
 export const fetchLeaderboard = (id) =>
   api.get(`/sessions/${id}/leaderboard`);
+
+export const forceFinishSession = (id) =>
+  api.post(`/sessions/${id}/finish`);

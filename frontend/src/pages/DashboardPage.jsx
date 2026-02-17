@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import { loadQuizzes } from '../store/quizSlice';
 import { createQuiz, deleteQuiz } from '../api/quizzes';
-import { createSession, listSessions } from '../api/sessions';
+import { createSession } from '../api/sessions';
 
 export default function DashboardPage() {
   const dispatch = useDispatch();
@@ -12,18 +12,8 @@ export default function DashboardPage() {
   const { list, loading } = useSelector((s) => s.quiz);
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [sessions, setSessions] = useState([]);
-  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => { dispatch(loadQuizzes()); }, []);
-
-  const loadHistory = async () => {
-    try {
-      const { data } = await listSessions();
-      setSessions(data || []);
-      setShowHistory(true);
-    } catch { /* ignore */ }
-  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -52,11 +42,6 @@ export default function DashboardPage() {
     }
   };
 
-  const statusLabel = (s) => {
-    const map = { waiting: 'Ожидание', question: 'Вопрос', revealed: 'Ответ', finished: 'Завершён' };
-    return map[s] || s;
-  };
-
   return (
     <>
       <Header />
@@ -64,7 +49,7 @@ export default function DashboardPage() {
         <div className="dashboard-header">
           <h2>Мои квизы</h2>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-outline btn-sm" onClick={loadHistory}>История сессий</button>
+            <button className="btn btn-outline btn-sm" onClick={() => navigate('/history')}>История сессий</button>
             <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>+ Создать квиз</button>
           </div>
         </div>
@@ -81,31 +66,6 @@ export default function DashboardPage() {
             <button type="submit" className="btn btn-success btn-sm">Создать</button>
             <button type="button" className="btn btn-outline btn-sm" onClick={() => setCreating(false)}>Отмена</button>
           </form>
-        )}
-
-        {showHistory && (
-          <div className="session-history">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3>История сессий</h3>
-              <button className="btn btn-outline btn-sm" onClick={() => setShowHistory(false)}>Скрыть</button>
-            </div>
-            {sessions.length === 0 ? (
-              <p style={{ color: '#999', fontSize: 14 }}>Нет завершённых сессий</p>
-            ) : (
-              <div className="history-list">
-                {sessions.map((s) => (
-                  <div key={s.id} className="history-card" onClick={() => navigate(`/session/${s.id}`)}>
-                    <div className="history-title">{s.quiz_title}</div>
-                    <div className="history-meta">
-                      <span className={`status-badge status-${s.status}`}>{statusLabel(s.status)}</span>
-                      <span>{s.participant_count} участн.</span>
-                      <span>{new Date(s.created_at).toLocaleString('ru')}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         )}
 
         {loading ? (
