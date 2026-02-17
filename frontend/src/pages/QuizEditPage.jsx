@@ -53,7 +53,17 @@ export default function QuizEditPage() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   useEffect(() => { dispatch(loadQuiz(id)); }, [id]);
-  useEffect(() => { if (quiz) setTitle(quiz.title); }, [quiz]);
+  useEffect(() => {
+    if (quiz) {
+      setTitle(quiz.title);
+      setCollapsedCats((prev) => {
+        if (Object.keys(prev).length > 0) return prev;
+        const map = {};
+        (quiz.categories || []).forEach((c) => { map[c.id] = true; });
+        return map;
+      });
+    }
+  }, [quiz]);
 
   const reload = useCallback(() => dispatch(loadQuiz(id)), [id]);
 

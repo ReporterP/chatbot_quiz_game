@@ -7,6 +7,9 @@ import (
 	"strings"
 
 	"quiz-game-backend/internal/services"
+	"quiz-game-backend/internal/ws"
+
+	"github.com/gin-gonic/gin"
 )
 
 type UpdateHandler struct {
@@ -15,6 +18,7 @@ type UpdateHandler struct {
 	tracker    *SessionTracker
 	sessionSvc *services.SessionService
 	tgUserSvc  *services.TelegramUserService
+	hub        *ws.Hub
 }
 
 func NewUpdateHandler(
@@ -23,6 +27,7 @@ func NewUpdateHandler(
 	tracker *SessionTracker,
 	sessionSvc *services.SessionService,
 	tgUserSvc *services.TelegramUserService,
+	hub *ws.Hub,
 ) *UpdateHandler {
 	return &UpdateHandler{
 		client:     client,
@@ -30,6 +35,7 @@ func NewUpdateHandler(
 		tracker:    tracker,
 		sessionSvc: sessionSvc,
 		tgUserSvc:  tgUserSvc,
+		hub:        hub,
 	}
 }
 
@@ -190,6 +196,13 @@ func (h *UpdateHandler) doJoin(userID, chatID int64, code, nickname string) {
 		"HTML", nil)
 
 	h.tracker.AddParticipant(result.SessionID, userID, chatID, msgID)
+
+	if h.hub != nil {
+		h.hub.Broadcast(result.SessionID, ws.WSMessage{
+			Type: "participant_joined",
+			Data: result.Participant,
+		})
+	}
 }
 
 func (h *UpdateHandler) cmdProfile(userID, chatID int64) {
@@ -298,6 +311,13 @@ func (h *UpdateHandler) handleCallback(cb *CallbackQuery) {
 	h.state.UpdateField(userID, func(s *UserState) {
 		s.SelectedOptionID = uint(optionID)
 	})
+
+	if h.hub != nil {
+		h.hub.Broadcast(uint(sessionID), ws.WSMessage{
+			Type: "answer_received",
+			Data: gin.H{"session_id": sessionID},
+		})
+	}
 
 	h.client.AnswerCallbackQuery(cb.ID, "✅ Ответ принят!", false)
 }

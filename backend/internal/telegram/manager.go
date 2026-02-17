@@ -12,6 +12,7 @@ import (
 
 	"quiz-game-backend/internal/models"
 	"quiz-game-backend/internal/services"
+	"quiz-game-backend/internal/ws"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -31,6 +32,7 @@ type BotManager struct {
 	db              *gorm.DB
 	sessionSvc      *services.SessionService
 	tgUserSvc       *services.TelegramUserService
+	hub             *ws.Hub
 	webhookBaseURL  string
 	webhookSecret   string
 	pollInterval    time.Duration
@@ -46,6 +48,7 @@ func NewBotManager(
 	db *gorm.DB,
 	sessionSvc *services.SessionService,
 	tgUserSvc *services.TelegramUserService,
+	hub *ws.Hub,
 	webhookBaseURL string,
 	webhookSecret string,
 	pollInterval time.Duration,
@@ -55,6 +58,7 @@ func NewBotManager(
 		db:              db,
 		sessionSvc:      sessionSvc,
 		tgUserSvc:       tgUserSvc,
+		hub:             hub,
 		webhookBaseURL:  webhookBaseURL,
 		webhookSecret:   webhookSecret,
 		pollInterval:    pollInterval,
@@ -131,7 +135,7 @@ func (m *BotManager) refreshTokens() {
 		client := NewClient(host.BotToken)
 		stateM := NewStateManager()
 		tracker := NewSessionTracker(client, stateM, m.sessionSvc, m.pollInterval)
-		handler := NewUpdateHandler(client, stateM, tracker, m.sessionSvc, m.tgUserSvc)
+		handler := NewUpdateHandler(client, stateM, tracker, m.sessionSvc, m.tgUserSvc, m.hub)
 
 		bot := &BotInstance{
 			Token:   host.BotToken,
