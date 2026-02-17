@@ -77,26 +77,32 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="quiz-grid">
-            {list.map((q) => (
+            {list.map((q) => {
+              const catCount = q.categories?.length || 0;
+              const catQuestions = (q.categories || []).reduce((sum, c) => sum + (c.questions?.length || 0), 0);
+              const orphanQuestions = q.questions?.length || 0;
+              const totalQuestions = catQuestions + orphanQuestions;
+              return (
               <div key={q.id} className="quiz-card">
                 <h3>{q.title}</h3>
                 <div className="quiz-meta">
-                  {q.questions?.length || 0} вопрос(ов) &middot; {new Date(q.created_at).toLocaleDateString('ru')}
+                  {catCount} кат. &middot; {totalQuestions} вопр. &middot; {new Date(q.created_at).toLocaleDateString('ru')}
                 </div>
                 <div className="quiz-card-actions">
                   <button className="btn btn-outline btn-sm" onClick={() => navigate(`/quiz/${q.id}`)}>Редактировать</button>
                   <button
                     className="btn btn-success btn-sm"
                     onClick={() => handleLaunch(q.id)}
-                    disabled={!q.questions?.length}
-                    title={!q.questions?.length ? 'Добавьте хотя бы 1 вопрос' : ''}
+                    disabled={!totalQuestions}
+                    title={!totalQuestions ? 'Добавьте хотя бы 1 вопрос' : ''}
                   >
                     Запустить
                   </button>
                   <button className="btn btn-danger btn-sm" onClick={() => handleDelete(q.id)}>Удалить</button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -1,0 +1,23 @@
+name: Deploy to VPS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            cd /opt/chatbot_quiz_game
+            git pull origin main
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+            docker image prune -f
