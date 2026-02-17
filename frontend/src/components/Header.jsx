@@ -1,6 +1,7 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { logout } from '../store/authSlice';
+import './Header.css';
 
 export default function Header() {
   const dispatch = useDispatch();

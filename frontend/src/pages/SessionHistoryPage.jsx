@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import { listSessions, forceFinishSession, fetchLeaderboard } from '../api/sessions';
+import './SessionHistoryPage.css';
 
 export default function SessionHistoryPage() {
   const navigate = useNavigate();

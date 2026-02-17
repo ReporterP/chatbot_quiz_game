@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"quiz-game-backend/internal/models"
 
@@ -24,7 +28,29 @@ type SettingsResponse struct {
 
 type UpdateSettingsRequest struct {
 	BotToken string `json:"bot_token" example:"123456:ABC-DEF"`
-	BotLink  string `json:"bot_link" example:"https://t.me/my_quiz_bot"`
+}
+
+func resolveBotUsername(token string) (string, error) {
+	resp, err := http.Get(fmt.Sprintf("https://api.telegram.org/bot%s/getMe", token))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var result struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Username string `json:"username"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", err
+	}
+	if !result.OK || result.Result.Username == "" {
+		return "", fmt.Errorf("invalid bot token")
+	}
+	return result.Result.Username, nil
 }
 
 // GetSettings godoc
@@ -71,17 +97,28 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 
+	botLink := ""
+	token := strings.TrimSpace(req.BotToken)
+	if token != "" {
+		username, err := resolveBotUsername(token)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Невалидный токен бота. Проверьте токен и попробуйте снова."})
+			return
+		}
+		botLink = fmt.Sprintf("https://t.me/%s", username)
+	}
+
 	if err := h.db.Model(&models.Host{}).Where("id = ?", hostID).Updates(map[string]interface{}{
-		"bot_token": req.BotToken,
-		"bot_link":  req.BotLink,
+		"bot_token": token,
+		"bot_link":  botLink,
 	}).Error; err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, SettingsResponse{
-		BotToken: req.BotToken,
-		BotLink:  req.BotLink,
+		BotToken: token,
+		BotLink:  botLink,
 	})
 }
 

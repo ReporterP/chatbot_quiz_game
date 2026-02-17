@@ -5,6 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { loadSession, doReveal, doNext, loadLeaderboard, clearSession } from '../store/sessionSlice';
 import { getSettings } from '../api/settings';
 import useWebSocket from '../hooks/useWebSocket';
+import './SessionPage.css';
 
 export default function SessionPage() {
   const { id } = useParams();

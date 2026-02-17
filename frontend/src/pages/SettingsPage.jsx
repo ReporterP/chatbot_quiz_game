@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import { getSettings, updateSettings } from '../api/settings';
+import './SettingsPage.css';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -25,7 +26,8 @@ export default function SettingsPage() {
     setSaving(true);
     setMessage('');
     try {
-      await updateSettings({ bot_token: botToken, bot_link: botLink });
+      const { data } = await updateSettings({ bot_token: botToken });
+      setBotLink(data.bot_link || '');
       setMessage('Настройки сохранены');
       setTimeout(() => setMessage(''), 3000);
     } catch (err) {
@@ -50,7 +52,7 @@ export default function SettingsPage() {
           <div className="settings-section">
             <h3>Telegram-бот</h3>
             <p className="settings-hint">
-              Создайте бота через <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a> в Telegram и вставьте токен и ссылку ниже.
+              Создайте бота через <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a> в Telegram и вставьте токен ниже. Ссылка на бота определится автоматически.
             </p>
 
             <label className="settings-label">
@@ -64,21 +66,16 @@ export default function SettingsPage() {
               />
             </label>
 
-            <label className="settings-label">
-              Ссылка на бота
-              <input
-                type="text"
-                className="settings-input"
-                value={botLink}
-                onChange={(e) => setBotLink(e.target.value)}
-                placeholder="https://t.me/my_quiz_bot"
-              />
-            </label>
+            {botLink && (
+              <div className="settings-bot-link">
+                Ссылка на бота: <a href={botLink} target="_blank" rel="noreferrer">{botLink}</a>
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Сохранение...' : 'Сохранить'}
+              {saving ? 'Проверка...' : 'Сохранить'}
             </button>
             {message && <span className={message.startsWith('Ошибка') ? 'text-error' : 'text-success'}>{message}</span>}
           </div>

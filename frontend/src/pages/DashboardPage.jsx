@@ -5,6 +5,8 @@ import Header from '../components/Header';
 import { loadQuizzes } from '../store/quizSlice';
 import { createQuiz, deleteQuiz } from '../api/quizzes';
 import { createSession } from '../api/sessions';
+import { getSettings } from '../api/settings';
+import './DashboardPage.css';
 
 export default function DashboardPage() {
   const dispatch = useDispatch();
@@ -12,8 +14,14 @@ export default function DashboardPage() {
   const { list, loading } = useSelector((s) => s.quiz);
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const [hasBotToken, setHasBotToken] = useState(null);
 
-  useEffect(() => { dispatch(loadQuizzes()); }, []);
+  useEffect(() => {
+    dispatch(loadQuizzes());
+    getSettings()
+      .then(({ data }) => setHasBotToken(!!data.bot_token))
+      .catch(() => setHasBotToken(false));
+  }, []);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -54,6 +62,13 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {hasBotToken === false && (
+          <div className="bot-token-warning">
+            ⚠️ Для запуска квизов необходимо добавить токен Telegram-бота в{' '}
+            <a href="/settings" onClick={(e) => { e.preventDefault(); navigate('/settings'); }}>настройках</a>
+          </div>
+        )}
+
         {creating && (
           <form onSubmit={handleCreate} style={{ marginBottom: 24, display: 'flex', gap: 12 }}>
             <input
@@ -82,6 +97,7 @@ export default function DashboardPage() {
               const catQuestions = (q.categories || []).reduce((sum, c) => sum + (c.questions?.length || 0), 0);
               const orphanQuestions = q.questions?.length || 0;
               const totalQuestions = catQuestions + orphanQuestions;
+              const canLaunch = totalQuestions > 0 && hasBotToken;
               return (
               <div key={q.id} className="quiz-card">
                 <h3>{q.title}</h3>
@@ -93,8 +109,8 @@ export default function DashboardPage() {
                   <button
                     className="btn btn-success btn-sm"
                     onClick={() => handleLaunch(q.id)}
-                    disabled={!totalQuestions}
-                    title={!totalQuestions ? 'Добавьте хотя бы 1 вопрос' : ''}
+                    disabled={!canLaunch}
+                    title={!hasBotToken ? 'Добавьте токен бота в настройках' : !totalQuestions ? 'Добавьте хотя бы 1 вопрос' : ''}
                   >
                     Запустить
                   </button>

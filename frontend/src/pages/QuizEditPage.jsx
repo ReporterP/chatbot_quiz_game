@@ -8,6 +8,7 @@ import Header from '../components/Header';
 import QuestionForm from '../components/QuestionForm';
 import { loadQuiz } from '../store/quizSlice';
 import { updateQuiz, createCategory, updateCategory as apiUpdateCategory, deleteCategory as apiDeleteCategory, reorderQuiz, createQuestion, updateQuestion, deleteQuestion, addQuestionImage, exportQuiz, importQuiz } from '../api/quizzes';
+import './QuizEditPage.css';
 import { createSession } from '../api/sessions';
 
 const PRESET_COLORS = ['#e21b3c', '#1368ce', '#d89e00', '#26890c', '#864cbf', '#0aa3b1'];

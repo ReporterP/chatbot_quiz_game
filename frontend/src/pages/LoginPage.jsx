@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Link, useNavigate } from 'react-router-dom';
 import { login, clearError } from '../store/authSlice';
+import './Auth.css';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
