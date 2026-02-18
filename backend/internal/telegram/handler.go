@@ -70,6 +70,11 @@ func (h *UpdateHandler) handleMessage(msg *Message) {
 		return
 	}
 
+	if strings.HasPrefix(text, "/rejoin") {
+		h.cmdRejoin(userID, chatID)
+		return
+	}
+
 	switch text {
 	case "🎮 Войти в квиз":
 		h.state.Set(userID, &UserState{State: StateEnterCode})
@@ -81,6 +86,9 @@ func (h *UpdateHandler) handleMessage(msg *Message) {
 	case "📊 История игр":
 		h.cmdHistory(userID, chatID)
 		return
+	case "🔄 Переподключиться":
+		h.cmdRejoin(userID, chatID)
+		return
 	}
 
 	us := h.state.Get(userID)
@@ -89,26 +97,41 @@ func (h *UpdateHandler) handleMessage(msg *Message) {
 		h.onCode(userID, chatID, text, msg.From.FirstName)
 	case StateEnterNickname:
 		h.onNickname(userID, chatID, text)
+	case StateInSession:
+		// User is in a session but sent a text message — try to recover
+		h.tryRecoverSession(userID, chatID, us)
 	default:
 		h.client.SendMessage(chatID, "Используйте /start или кнопки меню.", "", MainMenuKeyboard())
 	}
 }
 
 func (h *UpdateHandler) cmdStart(msg *Message, userID, chatID int64, text string) {
-	h.state.Clear(userID)
-
 	firstName := "Player"
 	if msg.From != nil && msg.From.FirstName != "" {
 		firstName = msg.From.FirstName
 	}
+
+	args := extractStartArgs(text)
+
+	// Check if user is currently in an active session
+	us := h.state.Get(userID)
+	if us.State == StateInSession && us.SessionID > 0 && args == "" {
+		sessState, err := h.sessionSvc.GetSession(us.SessionID)
+		if err == nil && sessState.Status != "finished" {
+			h.client.SendMessage(chatID,
+				fmt.Sprintf("🎮 Вы сейчас в активной сессии.\n\nНажмите <b>🔄 Переподключиться</b> чтобы вернуться в игру, или введите новый код."),
+				"HTML", SessionMenuKeyboard())
+			return
+		}
+	}
+
+	h.state.Clear(userID)
 
 	user, created, err := h.tgUserSvc.GetOrCreate(userID, h.hostID, firstName)
 	var nickname string
 	if err == nil {
 		nickname = user.Nickname
 	}
-
-	args := extractStartArgs(text)
 
 	if args != "" {
 		code := strings.TrimSpace(args)
@@ -191,21 +214,79 @@ func (h *UpdateHandler) doJoin(userID, chatID int64, code, nickname string) {
 	h.state.Set(userID, &UserState{
 		State:     StateInSession,
 		SessionID: result.SessionID,
+		Code:      code,
 		Nickname:  nickname,
 	})
 
-	msgID, _ := h.client.SendMessage(chatID,
-		fmt.Sprintf("🎮 Вы подключились к квизу!\n\nНикнейм: <b>%s</b>\nОжидайте начала игры...", nickname),
-		"HTML", nil)
+	var statusText string
+	if result.IsRejoin {
+		statusText = fmt.Sprintf("🔄 Вы переподключились к квизу!\n\nНикнейм: <b>%s</b>", nickname)
+	} else {
+		statusText = fmt.Sprintf("🎮 Вы подключились к квизу!\n\nНикнейм: <b>%s</b>\nОжидайте начала игры...", nickname)
+	}
+
+	msgID, _ := h.client.SendMessage(chatID, statusText, "HTML", nil)
 
 	h.tracker.AddParticipant(result.SessionID, userID, chatID, msgID)
 
-	if h.hub != nil {
+	// If session is already in progress, immediately sync state
+	sessState, err := h.sessionSvc.GetSession(result.SessionID)
+	if err == nil && sessState.Status != "waiting" {
+		go h.tracker.SyncParticipant(result.SessionID, userID)
+	}
+
+	if h.hub != nil && !result.IsRejoin {
 		h.hub.Broadcast(result.SessionID, ws.WSMessage{
 			Type: "participant_joined",
 			Data: result.Participant,
 		})
 	}
+}
+
+// tryRecoverSession handles the case where a user in StateInSession sends a text message.
+// This usually means they lost sync. We re-add them to the tracker and resync.
+func (h *UpdateHandler) tryRecoverSession(userID, chatID int64, us *UserState) {
+	if us.SessionID == 0 {
+		h.state.Clear(userID)
+		h.client.SendMessage(chatID, "Сессия не найдена. Используйте /start", "", MainMenuKeyboard())
+		return
+	}
+
+	sessState, err := h.sessionSvc.GetSession(us.SessionID)
+	if err != nil || sessState.Status == "finished" {
+		h.state.Clear(userID)
+		h.client.SendMessage(chatID, "Сессия завершена. Нажмите /start для новой игры.", "", MainMenuKeyboard())
+		return
+	}
+
+	// Re-add to tracker and sync
+	msgID, _ := h.client.SendMessage(chatID,
+		"🔄 Переподключение к квизу...", "HTML", nil)
+
+	h.tracker.AddParticipant(us.SessionID, userID, chatID, msgID)
+	go h.tracker.SyncParticipant(us.SessionID, userID)
+}
+
+// cmdRejoin handles explicit rejoin request
+func (h *UpdateHandler) cmdRejoin(userID, chatID int64) {
+	us := h.state.Get(userID)
+	if us.State != StateInSession || us.SessionID == 0 {
+		h.client.SendMessage(chatID, "Вы не подключены к сессии. Нажмите /start", "", MainMenuKeyboard())
+		return
+	}
+
+	sessState, err := h.sessionSvc.GetSession(us.SessionID)
+	if err != nil || sessState.Status == "finished" {
+		h.state.Clear(userID)
+		h.client.SendMessage(chatID, "Сессия завершена. Нажмите /start для новой игры.", "", MainMenuKeyboard())
+		return
+	}
+
+	msgID, _ := h.client.SendMessage(chatID,
+		"🔄 Переподключение к квизу...", "HTML", nil)
+
+	h.tracker.AddParticipant(us.SessionID, userID, chatID, msgID)
+	go h.tracker.SyncParticipant(us.SessionID, userID)
 }
 
 func (h *UpdateHandler) cmdProfile(userID, chatID int64) {
@@ -277,7 +358,7 @@ func (h *UpdateHandler) handleCallback(cb *CallbackQuery) {
 	userID := cb.From.ID
 	us := h.state.Get(userID)
 	if us.State != StateInSession {
-		h.client.AnswerCallbackQuery(cb.ID, "Вы не в активной сессии", true)
+		h.client.AnswerCallbackQuery(cb.ID, "Вы не в активной сессии. Нажмите /rejoin", true)
 		return
 	}
 
@@ -295,6 +376,12 @@ func (h *UpdateHandler) handleCallback(cb *CallbackQuery) {
 		errText := err.Error()
 		if strings.Contains(errText, "not accepting") {
 			h.client.AnswerCallbackQuery(cb.ID, "Время для ответа вышло", true)
+		} else if strings.Contains(errText, "participant not found") {
+			// Participant lost — try to rejoin silently
+			h.client.AnswerCallbackQuery(cb.ID, "Переподключение...", false)
+			if us.Code != "" && us.Nickname != "" {
+				go h.doJoin(userID, cb.Message.Chat.ID, us.Code, us.Nickname)
+			}
 		} else {
 			h.client.AnswerCallbackQuery(cb.ID, "Ошибка: "+errText, true)
 		}

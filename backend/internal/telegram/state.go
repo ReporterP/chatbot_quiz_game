@@ -15,8 +15,9 @@ type QuestionOption struct {
 }
 
 type QuestionData struct {
-	Text    string           `json:"text"`
-	Options []QuestionOption `json:"options"`
+	Text      string           `json:"text"`
+	SessionID uint             `json:"session_id"`
+	Options   []QuestionOption `json:"options"`
 }
 
 type UserState struct {

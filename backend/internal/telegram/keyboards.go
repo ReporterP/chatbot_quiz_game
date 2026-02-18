@@ -12,6 +12,16 @@ func MainMenuKeyboard() *ReplyKeyboardMarkup {
 	}
 }
 
+func SessionMenuKeyboard() *ReplyKeyboardMarkup {
+	return &ReplyKeyboardMarkup{
+		Keyboard: [][]KeyboardButton{
+			{{Text: "🔄 Переподключиться"}},
+			{{Text: "🎮 Войти в квиз"}},
+		},
+		ResizeKeyboard: true,
+	}
+}
+
 func AnswerKeyboard(sessionID uint, options []QuestionOption, selectedID uint) *InlineKeyboardMarkup {
 	var rows [][]InlineKeyboardButton
 	for _, opt := range options {

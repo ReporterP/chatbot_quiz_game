@@ -299,10 +299,9 @@ func (s *SessionService) ListSessions(hostID uint) ([]SessionSummary, error) {
 
 func (s *SessionService) JoinSession(code string, telegramID int64, nickname string) (*JoinResult, error) {
 	var session models.Session
-	if err := s.db.Where("code = ? AND status IN ?", code,
-		[]string{models.SessionStatusWaiting, models.SessionStatusQuestion}).
+	if err := s.db.Where("code = ? AND status != ?", code, models.SessionStatusFinished).
 		First(&session).Error; err != nil {
-		return nil, errors.New("session not found or not accepting participants")
+		return nil, errors.New("session not found or already finished")
 	}
 
 	var existing models.Participant
@@ -311,7 +310,13 @@ func (s *SessionService) JoinSession(code string, telegramID int64, nickname str
 		return &JoinResult{
 			SessionID:   session.ID,
 			Participant: existing,
+			IsRejoin:    true,
 		}, nil
+	}
+
+	// New participants can only join during waiting/question phases
+	if session.Status != models.SessionStatusWaiting && session.Status != models.SessionStatusQuestion {
+		return nil, errors.New("session is not accepting new participants")
 	}
 
 	participant := models.Participant{
@@ -480,6 +485,7 @@ type LeaderboardEntry struct {
 type JoinResult struct {
 	SessionID   uint               `json:"session_id"`
 	Participant models.Participant `json:"participant"`
+	IsRejoin    bool               `json:"is_rejoin"`
 }
 
 type ParticipantResult struct {

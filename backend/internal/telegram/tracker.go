@@ -77,6 +77,88 @@ func (t *SessionTracker) AddParticipant(sessionID uint, telegramID, chatID, mess
 	info.mu.Unlock()
 }
 
+// SyncParticipant immediately sends the current session state to one participant.
+// Used after (re)join to avoid waiting for the next poll cycle.
+func (t *SessionTracker) SyncParticipant(sessionID uint, telegramID int64) {
+	t.mu.Lock()
+	info, ok := t.sessions[sessionID]
+	t.mu.Unlock()
+	if !ok {
+		return
+	}
+
+	sessState, err := t.sessionSvc.GetSession(sessionID)
+	if err != nil {
+		return
+	}
+
+	info.mu.Lock()
+	p, pOk := info.Participants[telegramID]
+	info.mu.Unlock()
+	if !pOk {
+		return
+	}
+
+	status := sessState.Status
+
+	switch status {
+	case "question":
+		if sessState.CurrentQuestionData == nil {
+			return
+		}
+		t.syncSendQuestion(info, sessState, telegramID, p)
+	case "revealed":
+		t.syncSendResult(info, sessState, telegramID, p)
+	case "finished":
+		// will be handled by the poll loop
+	}
+}
+
+func (t *SessionTracker) syncSendQuestion(info *SessionInfo, sessState *services.SessionState, tgID int64, p *ParticipantInfo) {
+	qd := sessState.CurrentQuestionData
+	current := sessState.CurrentQuestion
+	total := sessState.TotalQuestions
+	text := fmt.Sprintf("❓ <b>Вопрос %d из %d</b>\n\n%s", current, total, qd.Text)
+
+	var opts []QuestionOption
+	for _, o := range qd.Options {
+		opts = append(opts, QuestionOption{ID: o.ID, Text: o.Text})
+	}
+	kb := AnswerKeyboard(info.SessionID, opts, 0)
+
+	msgID := t.sendOrEdit(p, text, kb)
+	if msgID > 0 {
+		info.mu.Lock()
+		if pp, ok := info.Participants[tgID]; ok {
+			pp.MessageID = msgID
+		}
+		info.mu.Unlock()
+	}
+
+	t.updateFSM(tgID, info.SessionID, qd.Text, opts, current, total)
+}
+
+func (t *SessionTracker) syncSendResult(info *SessionInfo, sessState *services.SessionState, tgID int64, p *ParticipantInfo) {
+	qd := sessState.CurrentQuestionData
+	current := sessState.CurrentQuestion
+	total := sessState.TotalQuestions
+
+	result, err := t.sessionSvc.GetParticipantResult(info.SessionID, tgID)
+	if err != nil {
+		return
+	}
+
+	text := t.buildResultText(qd, result, current, total)
+	msgID := t.sendOrEdit(p, text, nil)
+	if msgID > 0 {
+		info.mu.Lock()
+		if pp, ok := info.Participants[tgID]; ok {
+			pp.MessageID = msgID
+		}
+		info.mu.Unlock()
+	}
+}
+
 func (t *SessionTracker) removeSession(sessionID uint) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -151,6 +233,22 @@ func (t *SessionTracker) checkSession(sessionID uint) {
 	}
 }
 
+// sendOrEdit tries to edit the existing message; on failure sends a new one.
+// Returns the new messageID if a new message was sent, 0 if edit succeeded.
+func (t *SessionTracker) sendOrEdit(p *ParticipantInfo, text string, kb interface{}) int64 {
+	if p.MessageID > 0 {
+		if err := t.client.EditMessageText(p.ChatID, p.MessageID, text, "HTML", kb); err == nil {
+			return 0
+		}
+	}
+	msgID, err := t.client.SendMessage(p.ChatID, text, "HTML", kb)
+	if err != nil {
+		log.Printf("send msg to %d: %v", p.ChatID, err)
+		return 0
+	}
+	return msgID
+}
+
 func (t *SessionTracker) sendQuestion(info *SessionInfo, sessState *services.SessionState) {
 	qd := sessState.CurrentQuestionData
 	current := sessState.CurrentQuestion
@@ -171,36 +269,61 @@ func (t *SessionTracker) sendQuestion(info *SessionInfo, sessState *services.Ses
 	info.mu.Unlock()
 
 	for tgID, p := range participants {
-		if p.MessageID > 0 {
-			if err := t.client.EditMessageText(p.ChatID, p.MessageID, text, "HTML", kb); err == nil {
-				t.updateFSM(tgID, info.SessionID, opts, current, total)
-				continue
+		msgID := t.sendOrEdit(p, text, kb)
+		if msgID > 0 {
+			info.mu.Lock()
+			if pp, ok := info.Participants[tgID]; ok {
+				pp.MessageID = msgID
 			}
+			info.mu.Unlock()
 		}
-
-		msgID, err := t.client.SendMessage(p.ChatID, text, "HTML", kb)
-		if err != nil {
-			log.Printf("send question to %d: %v", p.ChatID, err)
-			continue
-		}
-
-		info.mu.Lock()
-		if pp, ok := info.Participants[tgID]; ok {
-			pp.MessageID = msgID
-		}
-		info.mu.Unlock()
-
-		t.updateFSM(tgID, info.SessionID, opts, current, total)
+		t.updateFSM(tgID, info.SessionID, qd.Text, opts, current, total)
 	}
 }
 
-func (t *SessionTracker) updateFSM(userID int64, sessionID uint, opts []QuestionOption, current, total int) {
+func (t *SessionTracker) updateFSM(userID int64, sessionID uint, qText string, opts []QuestionOption, current, total int) {
 	t.state.UpdateField(userID, func(s *UserState) {
-		s.QuestionData = &QuestionData{Options: opts}
+		s.QuestionData = &QuestionData{
+			Text:      qText,
+			SessionID: sessionID,
+			Options:   opts,
+		}
 		s.CurrentQNum = current
 		s.TotalQuestions = total
 		s.SelectedOptionID = 0
 	})
+}
+
+func (t *SessionTracker) buildResultText(qd *services.QuestionResponse, result *services.ParticipantResult, current, total int) string {
+	var resultLine, scoreLine string
+	if !result.Answered {
+		resultLine = "⏰ Вы не успели ответить"
+		scoreLine = fmt.Sprintf("\nВсего очков: <b>%d</b>", result.TotalScore)
+	} else if result.IsCorrect {
+		resultLine = "✅ <b>Правильно!</b>"
+		scoreLine = fmt.Sprintf("\nОчки за вопрос: <b>+%d</b> | Всего: <b>%d</b>", result.Score, result.TotalScore)
+	} else {
+		resultLine = "❌ <b>Неправильно</b>"
+		scoreLine = fmt.Sprintf("\nВсего очков: <b>%d</b>", result.TotalScore)
+	}
+
+	correctText := ""
+	if qd != nil {
+		for _, opt := range qd.Options {
+			if opt.IsCorrect != nil && *opt.IsCorrect {
+				correctText = fmt.Sprintf("\n\nПравильный ответ: <b>%s</b>", opt.Text)
+				break
+			}
+		}
+	}
+
+	questionText := ""
+	if qd != nil {
+		questionText = qd.Text
+	}
+
+	return fmt.Sprintf("❓ <b>Вопрос %d из %d</b>\n\n%s\n\n%s%s%s\n\n⏳ Ожидайте следующий вопрос...",
+		current, total, questionText, resultLine, scoreLine, correctText)
 }
 
 func (t *SessionTracker) sendResults(info *SessionInfo, sessState *services.SessionState) {
@@ -221,48 +344,14 @@ func (t *SessionTracker) sendResults(info *SessionInfo, sessState *services.Sess
 			continue
 		}
 
-		var resultLine, scoreLine string
-		if !result.Answered {
-			resultLine = "⏰ Вы не успели ответить"
-		} else if result.IsCorrect {
-			resultLine = "✅ <b>Правильно!</b>"
-			scoreLine = fmt.Sprintf("\nОчки за вопрос: <b>+%d</b> | Всего: <b>%d</b>", result.Score, result.TotalScore)
-		} else {
-			resultLine = "❌ <b>Неправильно</b>"
-			scoreLine = fmt.Sprintf("\nВсего очков: <b>%d</b>", result.TotalScore)
-		}
-
-		correctText := ""
-		if qd != nil {
-			for _, opt := range qd.Options {
-				if opt.IsCorrect != nil && *opt.IsCorrect {
-					correctText = fmt.Sprintf("\n\nПравильный ответ: <b>%s</b>", opt.Text)
-					break
-				}
+		text := t.buildResultText(qd, result, current, total)
+		msgID := t.sendOrEdit(p, text, nil)
+		if msgID > 0 {
+			info.mu.Lock()
+			if pp, ok := info.Participants[tgID]; ok {
+				pp.MessageID = msgID
 			}
-		}
-
-		questionText := ""
-		if qd != nil {
-			questionText = qd.Text
-		}
-
-		text := fmt.Sprintf("❓ <b>Вопрос %d из %d</b>\n\n%s\n\n%s%s%s\n\n⏳ Ожидайте следующий вопрос...",
-			current, total, questionText, resultLine, scoreLine, correctText)
-
-		if p.MessageID > 0 {
-			if err := t.client.EditMessageText(p.ChatID, p.MessageID, text, "HTML", nil); err != nil {
-				log.Printf("edit result for %d: %v", p.ChatID, err)
-			}
-		} else {
-			msgID, err := t.client.SendMessage(p.ChatID, text, "HTML", nil)
-			if err == nil {
-				info.mu.Lock()
-				if pp, ok := info.Participants[tgID]; ok {
-					pp.MessageID = msgID
-				}
-				info.mu.Unlock()
-			}
+			info.mu.Unlock()
 		}
 	}
 }
