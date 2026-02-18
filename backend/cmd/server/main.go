@@ -45,6 +45,7 @@ func main() {
 	scoringService := services.NewScoringService()
 	sessionService := services.NewSessionService(db, scoringService)
 	tgUserService := services.NewTelegramUserService(db)
+	roomService := services.NewRoomService(db)
 
 	aiService := services.NewAIGenerateService(cfg.QwenAPIKey, cfg.QwenAPIURL, cfg.QwenModel)
 
@@ -57,6 +58,8 @@ func main() {
 	tgUserHandler := handlers.NewTelegramUserHandler(tgUserService)
 	wsHandler := handlers.NewWSHandler(hub)
 	aiHandler := handlers.NewAIGenerateHandler(quizService, aiService)
+	roomHandler := handlers.NewRoomHandler(roomService, sessionService, hub)
+	playHandler := handlers.NewPlayHandler(roomService, sessionService, hub)
 
 	r := gin.Default()
 
@@ -70,6 +73,7 @@ func main() {
 	r.Static("/uploads", "/uploads")
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	r.GET("/ws/session/:id", wsHandler.HandleWebSocket)
+	r.GET("/ws/room/:code", playHandler.HandleRoomWebSocket)
 
 	pollSec, _ := strconv.Atoi(cfg.PollInterval)
 	if pollSec <= 0 {
@@ -148,6 +152,30 @@ func main() {
 			upload.POST("", questionHandler.UploadImage)
 		}
 
+		rooms := api.Group("/rooms")
+		rooms.Use(middleware.JWTAuth(authService))
+		{
+			rooms.POST("", roomHandler.CreateRoom)
+			rooms.GET("", roomHandler.ListActiveRooms)
+			rooms.GET("/:id", roomHandler.GetRoom)
+			rooms.POST("/:id/close", roomHandler.CloseRoom)
+			rooms.POST("/:id/start", roomHandler.StartQuizInRoom)
+			rooms.POST("/:id/reveal", roomHandler.SessionReveal)
+			rooms.POST("/:id/next", roomHandler.SessionNext)
+			rooms.POST("/:id/finish", roomHandler.SessionFinish)
+			rooms.GET("/:id/leaderboard", roomHandler.GetRoomLeaderboard)
+		}
+
+		play := api.Group("/play")
+		{
+			play.POST("/join", playHandler.Join)
+			play.GET("/reconnect", playHandler.Reconnect)
+			play.POST("/answer", playHandler.Answer)
+			play.GET("/state", playHandler.GetState)
+			play.PUT("/nickname", playHandler.UpdateNickname)
+			play.GET("/my-result", playHandler.GetMyResult)
+		}
+
 		sessions := api.Group("/sessions")
 		{
 			sessions.GET("", middleware.JWTAuth(authService), sessionHandler.ListSessions)
@@ -156,7 +184,7 @@ func main() {
 			sessions.POST("/:id/reveal", middleware.JWTAuth(authService), sessionHandler.RevealAnswer)
 			sessions.POST("/:id/next", middleware.JWTAuth(authService), sessionHandler.NextQuestion)
 			sessions.POST("/:id/finish", middleware.JWTAuth(authService), sessionHandler.ForceFinish)
-		sessions.GET("/:id/leaderboard", middleware.FlexAuth(authService, cfg.BotAPIKey), sessionHandler.GetLeaderboard)
+			sessions.GET("/:id/leaderboard", middleware.FlexAuth(authService, cfg.BotAPIKey), sessionHandler.GetLeaderboard)
 
 			sessions.POST("/join", middleware.BotAuth(cfg.BotAPIKey), participantHandler.JoinSession)
 			sessions.POST("/:id/answer", middleware.BotAuth(cfg.BotAPIKey), participantHandler.SubmitAnswer)

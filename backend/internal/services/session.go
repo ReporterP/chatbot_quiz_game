@@ -56,7 +56,7 @@ func (s *SessionService) getOrderedQuestions(quizID uint) []questionWithMeta {
 	return result
 }
 
-func (s *SessionService) CreateSession(quizID, hostID uint) (*models.Session, error) {
+func (s *SessionService) CreateSessionInRoom(roomID, quizID, hostID uint) (*models.Session, error) {
 	var quiz models.Quiz
 	if err := s.db.Where("id = ? AND host_id = ?", quizID, hostID).First(&quiz).Error; err != nil {
 		return nil, errors.New("quiz not found")
@@ -67,9 +67,14 @@ func (s *SessionService) CreateSession(quizID, hostID uint) (*models.Session, er
 		return nil, errors.New("quiz must have at least one question")
 	}
 
-	code := s.generateUniqueCode()
+	// Finish any active session in this room
+	s.db.Model(&models.Session{}).
+		Where("room_id = ? AND status != ?", roomID, models.SessionStatusFinished).
+		Update("status", models.SessionStatusFinished)
 
+	code := s.generateUniqueCode()
 	session := models.Session{
+		RoomID:          roomID,
 		QuizID:          quizID,
 		HostID:          hostID,
 		Code:            code,
@@ -80,8 +85,43 @@ func (s *SessionService) CreateSession(quizID, hostID uint) (*models.Session, er
 		return nil, err
 	}
 
+	// Auto-create participants for all room members
+	var members []models.RoomMember
+	s.db.Where("room_id = ?", roomID).Find(&members)
+	for _, m := range members {
+		p := models.Participant{
+			SessionID:  session.ID,
+			MemberID:   m.ID,
+			Nickname:   m.Nickname,
+			TotalScore: 0,
+			JoinedAt:   time.Now(),
+		}
+		s.db.Create(&p)
+	}
+
 	s.db.Preload("Quiz").First(&session, session.ID)
 	return &session, nil
+}
+
+// AddLateParticipant adds a participant who joined the room after the session started
+func (s *SessionService) AddLateParticipant(sessionID, memberID uint, nickname string) (*models.Participant, error) {
+	var existing models.Participant
+	if err := s.db.Where("session_id = ? AND member_id = ?", sessionID, memberID).
+		First(&existing).Error; err == nil {
+		return &existing, nil
+	}
+
+	p := models.Participant{
+		SessionID:  sessionID,
+		MemberID:   memberID,
+		Nickname:   nickname,
+		TotalScore: 0,
+		JoinedAt:   time.Now(),
+	}
+	if err := s.db.Create(&p).Error; err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 func (s *SessionService) GetSession(sessionID uint) (*SessionState, error) {
@@ -97,7 +137,7 @@ func (s *SessionService) GetSession(sessionID uint) (*SessionState, error) {
 	questions := s.getOrderedQuestions(session.QuizID)
 
 	state := &SessionState{
-		Session:       session,
+		Session:        session,
 		TotalQuestions: len(questions),
 	}
 
@@ -113,10 +153,7 @@ func (s *SessionService) GetSession(sessionID uint) (*SessionState, error) {
 		}
 
 		for _, img := range q.Images {
-			qr.Images = append(qr.Images, ImageResponse{
-				ID:  img.ID,
-				URL: img.URL,
-			})
+			qr.Images = append(qr.Images, ImageResponse{ID: img.ID, URL: img.URL})
 		}
 
 		for _, o := range q.Options {
@@ -265,6 +302,7 @@ func (s *SessionService) GetLeaderboard(sessionID uint) ([]LeaderboardEntry, err
 			Position:   i + 1,
 			Nickname:   p.Nickname,
 			TotalScore: p.TotalScore,
+			MemberID:   p.MemberID,
 			TelegramID: p.TelegramID,
 		}
 	}
@@ -323,6 +361,206 @@ func (s *SessionService) ListSessions(hostID uint) ([]SessionSummary, error) {
 	return result, nil
 }
 
+func (s *SessionService) SubmitAnswerByMember(sessionID, memberID, optionID uint) error {
+	var session models.Session
+	if err := s.db.First(&session, sessionID).Error; err != nil {
+		return errors.New("session not found")
+	}
+
+	if session.Status != models.SessionStatusQuestion {
+		return errors.New("session is not accepting answers")
+	}
+
+	var participant models.Participant
+	if err := s.db.Where("session_id = ? AND member_id = ?", sessionID, memberID).
+		First(&participant).Error; err != nil {
+		return errors.New("participant not found in session")
+	}
+
+	questions := s.getOrderedQuestions(session.QuizID)
+	if session.CurrentQuestion < 1 || session.CurrentQuestion > len(questions) {
+		return errors.New("invalid question state")
+	}
+	currentQ := questions[session.CurrentQuestion-1].Question
+
+	var option models.Option
+	if err := s.db.Where("id = ? AND question_id = ?", optionID, currentQ.ID).
+		First(&option).Error; err != nil {
+		return errors.New("invalid option for current question")
+	}
+
+	var existingAnswer models.Answer
+	if err := s.db.Where("session_id = ? AND participant_id = ? AND question_id = ?",
+		sessionID, participant.ID, currentQ.ID).First(&existingAnswer).Error; err == nil {
+		existingAnswer.OptionID = optionID
+		existingAnswer.IsCorrect = option.IsCorrect
+		existingAnswer.AnsweredAt = time.Now()
+		return s.db.Save(&existingAnswer).Error
+	}
+
+	answer := models.Answer{
+		SessionID:     sessionID,
+		ParticipantID: participant.ID,
+		QuestionID:    currentQ.ID,
+		OptionID:      optionID,
+		IsCorrect:     option.IsCorrect,
+		Score:         0,
+		AnsweredAt:    time.Now(),
+	}
+	return s.db.Create(&answer).Error
+}
+
+func (s *SessionService) GetParticipantResultByMember(sessionID, memberID uint) (*ParticipantResult, error) {
+	var session models.Session
+	if err := s.db.First(&session, sessionID).Error; err != nil {
+		return nil, errors.New("session not found")
+	}
+
+	var participant models.Participant
+	if err := s.db.Where("session_id = ? AND member_id = ?", sessionID, memberID).
+		First(&participant).Error; err != nil {
+		return nil, errors.New("participant not found")
+	}
+
+	if session.Status != models.SessionStatusRevealed && session.Status != models.SessionStatusFinished {
+		return &ParticipantResult{
+			TotalScore: participant.TotalScore,
+			Answered:   false,
+		}, nil
+	}
+
+	questions := s.getOrderedQuestions(session.QuizID)
+	if session.CurrentQuestion < 1 || session.CurrentQuestion > len(questions) {
+		return nil, errors.New("invalid question state")
+	}
+	currentQ := questions[session.CurrentQuestion-1].Question
+
+	var answer models.Answer
+	if err := s.db.Where("session_id = ? AND participant_id = ? AND question_id = ?",
+		sessionID, participant.ID, currentQ.ID).First(&answer).Error; err != nil {
+		return &ParticipantResult{
+			TotalScore: participant.TotalScore,
+			Answered:   false,
+		}, nil
+	}
+
+	return &ParticipantResult{
+		QuestionID: currentQ.ID,
+		OptionID:   answer.OptionID,
+		IsCorrect:  answer.IsCorrect,
+		Score:      answer.Score,
+		TotalScore: participant.TotalScore,
+		Answered:   true,
+	}, nil
+}
+
+func (s *SessionService) generateUniqueCode() string {
+	for {
+		code := fmt.Sprintf("%06d", rand.Intn(1000000))
+		var count int64
+		s.db.Model(&models.Session{}).
+			Where("code = ? AND status != ?", code, models.SessionStatusFinished).
+			Count(&count)
+		if count == 0 {
+			return code
+		}
+	}
+}
+
+type questionWithMeta struct {
+	Question     models.Question
+	CategoryName string
+}
+
+type SessionState struct {
+	models.Session
+	TotalQuestions       int               `json:"total_questions"`
+	CurrentQuestionData *QuestionResponse  `json:"current_question_data,omitempty"`
+	AnswerCount         int                `json:"answer_count"`
+}
+
+type QuestionResponse struct {
+	ID           uint             `json:"id"`
+	Text         string           `json:"text"`
+	OrderNum     int              `json:"order_num"`
+	CategoryName string           `json:"category_name,omitempty"`
+	Options      []OptionResponse `json:"options"`
+	Images       []ImageResponse  `json:"images,omitempty"`
+}
+
+type OptionResponse struct {
+	ID        uint   `json:"id"`
+	Text      string `json:"text"`
+	Color     string `json:"color,omitempty"`
+	IsCorrect *bool  `json:"is_correct,omitempty"`
+}
+
+type ImageResponse struct {
+	ID  uint   `json:"id"`
+	URL string `json:"url"`
+}
+
+type LeaderboardEntry struct {
+	Position   int    `json:"position"`
+	Nickname   string `json:"nickname"`
+	TotalScore int    `json:"total_score"`
+	MemberID   uint   `json:"member_id"`
+	TelegramID int64  `json:"telegram_id,omitempty"`
+}
+
+type ParticipantResult struct {
+	QuestionID uint `json:"question_id,omitempty"`
+	OptionID   uint `json:"option_id,omitempty"`
+	IsCorrect  bool `json:"is_correct"`
+	Score      int  `json:"score"`
+	TotalScore int  `json:"total_score"`
+	Answered   bool `json:"answered"`
+}
+
+type SessionSummary struct {
+	ID               uint      `json:"id"`
+	QuizTitle        string    `json:"quiz_title"`
+	Code             string    `json:"code"`
+	Status           string    `json:"status"`
+	ParticipantCount int       `json:"participant_count"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+type JoinResult struct {
+	SessionID   uint               `json:"session_id"`
+	Participant models.Participant `json:"participant"`
+	IsRejoin    bool               `json:"is_rejoin"`
+}
+
+// Legacy methods for backward compatibility with bot/participant handlers
+
+func (s *SessionService) CreateSession(quizID, hostID uint) (*models.Session, error) {
+	var quiz models.Quiz
+	if err := s.db.Where("id = ? AND host_id = ?", quizID, hostID).First(&quiz).Error; err != nil {
+		return nil, errors.New("quiz not found")
+	}
+
+	questions := s.getOrderedQuestions(quizID)
+	if len(questions) == 0 {
+		return nil, errors.New("quiz must have at least one question")
+	}
+
+	code := s.generateUniqueCode()
+	session := models.Session{
+		QuizID:          quizID,
+		HostID:          hostID,
+		Code:            code,
+		Status:          models.SessionStatusWaiting,
+		CurrentQuestion: 0,
+	}
+	if err := s.db.Create(&session).Error; err != nil {
+		return nil, err
+	}
+
+	s.db.Preload("Quiz").First(&session, session.ID)
+	return &session, nil
+}
+
 func (s *SessionService) JoinSession(code string, telegramID int64, nickname string) (*JoinResult, error) {
 	var session models.Session
 	if err := s.db.Where("code = ? AND status != ?", code, models.SessionStatusFinished).
@@ -333,14 +571,9 @@ func (s *SessionService) JoinSession(code string, telegramID int64, nickname str
 	var existing models.Participant
 	if err := s.db.Where("session_id = ? AND telegram_id = ?", session.ID, telegramID).
 		First(&existing).Error; err == nil {
-		return &JoinResult{
-			SessionID:   session.ID,
-			Participant: existing,
-			IsRejoin:    true,
-		}, nil
+		return &JoinResult{SessionID: session.ID, Participant: existing, IsRejoin: true}, nil
 	}
 
-	// New participants can only join during waiting/question phases
 	if session.Status != models.SessionStatusWaiting && session.Status != models.SessionStatusQuestion {
 		return nil, errors.New("session is not accepting new participants")
 	}
@@ -356,10 +589,7 @@ func (s *SessionService) JoinSession(code string, telegramID int64, nickname str
 		return nil, fmt.Errorf("failed to join session: %w", err)
 	}
 
-	return &JoinResult{
-		SessionID:   session.ID,
-		Participant: participant,
-	}, nil
+	return &JoinResult{SessionID: session.ID, Participant: participant}, nil
 }
 
 func (s *SessionService) SubmitAnswer(sessionID uint, telegramID int64, optionID uint) error {
@@ -424,10 +654,7 @@ func (s *SessionService) GetParticipantResult(sessionID uint, telegramID int64) 
 	}
 
 	if session.Status != models.SessionStatusRevealed && session.Status != models.SessionStatusFinished {
-		return &ParticipantResult{
-			TotalScore: participant.TotalScore,
-			Answered:   false,
-		}, nil
+		return &ParticipantResult{TotalScore: participant.TotalScore, Answered: false}, nil
 	}
 
 	questions := s.getOrderedQuestions(session.QuizID)
@@ -439,10 +666,7 @@ func (s *SessionService) GetParticipantResult(sessionID uint, telegramID int64) 
 	var answer models.Answer
 	if err := s.db.Where("session_id = ? AND participant_id = ? AND question_id = ?",
 		sessionID, participant.ID, currentQ.ID).First(&answer).Error; err != nil {
-		return &ParticipantResult{
-			TotalScore: participant.TotalScore,
-			Answered:   false,
-		}, nil
+		return &ParticipantResult{TotalScore: participant.TotalScore, Answered: false}, nil
 	}
 
 	return &ParticipantResult{
@@ -453,81 +677,4 @@ func (s *SessionService) GetParticipantResult(sessionID uint, telegramID int64) 
 		TotalScore: participant.TotalScore,
 		Answered:   true,
 	}, nil
-}
-
-func (s *SessionService) generateUniqueCode() string {
-	for {
-		code := fmt.Sprintf("%06d", rand.Intn(1000000))
-		var count int64
-		s.db.Model(&models.Session{}).
-			Where("code = ? AND status != ?", code, models.SessionStatusFinished).
-			Count(&count)
-		if count == 0 {
-			return code
-		}
-	}
-}
-
-type questionWithMeta struct {
-	Question     models.Question
-	CategoryName string
-}
-
-type SessionState struct {
-	models.Session
-	TotalQuestions       int               `json:"total_questions"`
-	CurrentQuestionData *QuestionResponse `json:"current_question_data,omitempty"`
-	AnswerCount         int               `json:"answer_count"`
-}
-
-type QuestionResponse struct {
-	ID           uint             `json:"id"`
-	Text         string           `json:"text"`
-	OrderNum     int              `json:"order_num"`
-	CategoryName string           `json:"category_name,omitempty"`
-	Options      []OptionResponse `json:"options"`
-	Images       []ImageResponse  `json:"images,omitempty"`
-}
-
-type OptionResponse struct {
-	ID        uint   `json:"id"`
-	Text      string `json:"text"`
-	Color     string `json:"color,omitempty"`
-	IsCorrect *bool  `json:"is_correct,omitempty"`
-}
-
-type ImageResponse struct {
-	ID  uint   `json:"id"`
-	URL string `json:"url"`
-}
-
-type LeaderboardEntry struct {
-	Position   int    `json:"position"`
-	Nickname   string `json:"nickname"`
-	TotalScore int    `json:"total_score"`
-	TelegramID int64  `json:"telegram_id"`
-}
-
-type JoinResult struct {
-	SessionID   uint               `json:"session_id"`
-	Participant models.Participant `json:"participant"`
-	IsRejoin    bool               `json:"is_rejoin"`
-}
-
-type ParticipantResult struct {
-	QuestionID uint `json:"question_id,omitempty"`
-	OptionID   uint `json:"option_id,omitempty"`
-	IsCorrect  bool `json:"is_correct"`
-	Score      int  `json:"score"`
-	TotalScore int  `json:"total_score"`
-	Answered   bool `json:"answered"`
-}
-
-type SessionSummary struct {
-	ID               uint      `json:"id"`
-	QuizTitle        string    `json:"quiz_title"`
-	Code             string    `json:"code"`
-	Status           string    `json:"status"`
-	ParticipantCount int       `json:"participant_count"`
-	CreatedAt        time.Time `json:"created_at"`
 }

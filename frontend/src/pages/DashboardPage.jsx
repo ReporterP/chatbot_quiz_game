@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import { loadQuizzes } from '../store/quizSlice';
 import { createQuiz, deleteQuiz, checkAIStatus, generateQuiz } from '../api/quizzes';
-import { createSession } from '../api/sessions';
+import { createRoom } from '../api/rooms';
 import { getSettings } from '../api/settings';
 import './DashboardPage.css';
 
@@ -48,11 +48,10 @@ export default function DashboardPage() {
     dispatch(loadQuizzes());
   };
 
-  const handleLaunch = async (quizId) => {
+  const handleLaunch = async (quizId, quizMode) => {
     try {
-      const { data } = await createSession(quizId);
-      const sessionId = data.session?.id || data.id;
-      navigate(`/session/${sessionId}`);
+      const { data: room } = await createRoom(quizMode || 'web');
+      navigate(`/room/${room.id}`, { state: { quizId } });
     } catch (err) {
       alert(err.response?.data?.error || 'Ошибка запуска');
     }
@@ -98,8 +97,9 @@ export default function DashboardPage() {
 
         {hasBotToken === false && (
           <div className="bot-token-warning">
-            Для запуска квизов необходимо добавить токен Telegram-бота в{' '}
-            <a href="/settings" onClick={(e) => { e.preventDefault(); navigate('/settings'); }}>настройках</a>
+            Для проведения квизов в боте необходимо добавить токен Telegram-бота в{' '}
+            <a href="/settings" onClick={(e) => { e.preventDefault(); navigate('/settings'); }}>настройках</a>.
+            Веб-квизы можно запускать без токена.
           </div>
         )}
 
@@ -131,7 +131,8 @@ export default function DashboardPage() {
               const catQuestions = (q.categories || []).reduce((sum, c) => sum + (c.questions?.length || 0), 0);
               const orphanQuestions = q.questions?.length || 0;
               const totalQuestions = catQuestions + orphanQuestions;
-              const canLaunch = totalQuestions > 0 && hasBotToken;
+              const isBot = q.mode === 'bot';
+              const canLaunch = totalQuestions > 0 && (isBot ? hasBotToken : true);
               return (
               <div key={q.id} className="quiz-card">
                 <h3>{q.title}</h3>
@@ -142,9 +143,9 @@ export default function DashboardPage() {
                   <button className="btn btn-outline btn-sm" onClick={() => navigate(`/quiz/${q.id}`)}>Редактировать</button>
                   <button
                     className="btn btn-success btn-sm"
-                    onClick={() => handleLaunch(q.id)}
+                    onClick={() => handleLaunch(q.id, q.mode)}
                     disabled={!canLaunch}
-                    title={!hasBotToken ? 'Добавьте токен бота в настройках' : !totalQuestions ? 'Добавьте хотя бы 1 вопрос' : ''}
+                    title={isBot && !hasBotToken ? 'Добавьте токен бота в настройках' : !totalQuestions ? 'Добавьте хотя бы 1 вопрос' : ''}
                   >
                     Запустить
                   </button>

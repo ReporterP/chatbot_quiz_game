@@ -9,7 +9,7 @@ import QuestionForm from '../components/QuestionForm';
 import { loadQuiz } from '../store/quizSlice';
 import { updateQuiz, createCategory, updateCategory as apiUpdateCategory, deleteCategory as apiDeleteCategory, reorderQuiz, createQuestion, updateQuestion, deleteQuestion, addQuestionImage, exportQuiz, importQuiz } from '../api/quizzes';
 import './QuizEditPage.css';
-import { createSession } from '../api/sessions';
+import { createRoom } from '../api/rooms';
 
 const PRESET_COLORS = ['#e21b3c', '#1368ce', '#d89e00', '#26890c', '#864cbf', '#0aa3b1'];
 
@@ -55,6 +55,7 @@ export default function QuizEditPage() {
   const loading = useSelector((s) => s.quiz.loading);
 
   const [title, setTitle] = useState('');
+  const [mode, setMode] = useState('web');
   const [addingCat, setAddingCat] = useState(false);
   const [newCatTitle, setNewCatTitle] = useState('');
   const [addingQuestionCatId, setAddingQuestionCatId] = useState(null);
@@ -80,6 +81,7 @@ export default function QuizEditPage() {
   useEffect(() => {
     if (quiz) {
       setTitle(quiz.title);
+      setMode(quiz.mode || 'web');
       setCollapsedCats((prev) => {
         if (Object.keys(prev).length > 0) return prev;
         const map = {};
@@ -184,24 +186,26 @@ export default function QuizEditPage() {
     }
 
     if (activeStr.startsWith('q-')) {
-      let finalContainers;
       setContainers(prev => {
         let next = { ...prev };
         const ac = findContainerIn(next, activeStr);
-        const oc = findContainerIn(next, overStr);
-        if (ac && oc && ac === oc && activeStr !== overStr) {
+        let oc = findContainerIn(next, overStr);
+        if (!ac || !oc) return prev;
+
+        if (ac === oc) {
           const items = [...next[ac]];
           const oldIdx = items.indexOf(activeStr);
-          const newIdx = items.indexOf(overStr);
+          const newIdx = overStr.startsWith('drop-') ? items.length - 1 : items.indexOf(overStr);
           if (oldIdx !== -1 && newIdx !== -1 && oldIdx !== newIdx) {
             next = { ...next, [ac]: arrayMove(items, oldIdx, newIdx) };
           }
         }
-        finalContainers = next;
+        containersRef.current = next;
         return next;
       });
 
-      const payload = buildPayload(finalContainers, categories);
+      await new Promise(r => setTimeout(r, 0));
+      const payload = buildPayload(containersRef.current, categories);
       await reorderQuiz(id, payload);
       reload();
     }
@@ -212,8 +216,13 @@ export default function QuizEditPage() {
     setTitle(val);
     clearTimeout(titleTimer.current);
     titleTimer.current = setTimeout(() => {
-      if (val.trim()) updateQuiz(id, val.trim());
+      if (val.trim()) updateQuiz(id, val.trim(), mode);
     }, 600);
+  };
+
+  const handleModeChange = (newMode) => {
+    setMode(newMode);
+    updateQuiz(id, title, newMode);
   };
 
   const handleCreateCategory = async (e) => {
@@ -264,9 +273,8 @@ export default function QuizEditPage() {
 
   const handleLaunch = async () => {
     try {
-      const { data } = await createSession(Number(id));
-      const sessionId = data.session?.id || data.id;
-      navigate(`/session/${sessionId}`);
+      const { data: room } = await createRoom(mode);
+      navigate(`/room/${room.id}`, { state: { quizId: Number(id) } });
     } catch (err) {
       alert(err.response?.data?.error || 'Ошибка запуска');
     }
@@ -311,7 +319,11 @@ export default function QuizEditPage() {
           <input className="quiz-title-input" value={title} onChange={(e) => handleTitleChange(e.target.value)} placeholder="Название квиза" />
           <button className="btn btn-success btn-sm" onClick={handleLaunch} disabled={totalQuestions === 0}>Запустить</button>
         </div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="mode-toggle">
+            <button className={`mode-btn${mode === 'web' ? ' active' : ''}`} onClick={() => handleModeChange('web')}>Веб</button>
+            <button className={`mode-btn${mode === 'bot' ? ' active' : ''}`} onClick={() => handleModeChange('bot')}>Бот</button>
+          </div>
           <button className="btn btn-outline btn-sm" onClick={() => handleExport('json')}>Экспорт JSON</button>
           <button className="btn btn-outline btn-sm" onClick={() => handleExport('csv')}>Экспорт CSV</button>
           <label className="btn btn-outline btn-sm" style={{ cursor: 'pointer' }}>

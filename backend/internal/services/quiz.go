@@ -92,13 +92,16 @@ func (s *QuizService) GetQuizByID(quizID, hostID uint) (*models.Quiz, error) {
 	return &quiz, nil
 }
 
-func (s *QuizService) UpdateQuiz(quizID, hostID uint, title string) (*models.Quiz, error) {
+func (s *QuizService) UpdateQuiz(quizID, hostID uint, title, mode string) (*models.Quiz, error) {
 	var quiz models.Quiz
 	if err := s.db.Where("id = ? AND host_id = ?", quizID, hostID).First(&quiz).Error; err != nil {
 		return nil, errors.New("quiz not found")
 	}
 
 	quiz.Title = title
+	if mode == "web" || mode == "bot" {
+		quiz.Mode = mode
+	}
 	if err := s.db.Save(&quiz).Error; err != nil {
 		return nil, err
 	}

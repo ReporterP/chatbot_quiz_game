@@ -23,6 +23,7 @@ type CreateQuizRequest struct {
 
 type UpdateQuizRequest struct {
 	Title string `json:"title" binding:"required,min=1,max=255" example:"Updated Quiz"`
+	Mode  string `json:"mode" example:"web"`
 }
 
 // ListQuizzes godoc
@@ -130,7 +131,7 @@ func (h *QuizHandler) UpdateQuiz(c *gin.Context) {
 		return
 	}
 
-	quiz, err := h.quizService.UpdateQuiz(uint(quizID), hostID, req.Title)
+	quiz, err := h.quizService.UpdateQuiz(uint(quizID), hostID, req.Title, req.Mode)
 	if err != nil {
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: err.Error()})
 		return

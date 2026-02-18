@@ -9,8 +9,8 @@ export const fetchQuiz = (id) =>
 export const createQuiz = (title) =>
   api.post('/quizzes', { title });
 
-export const updateQuiz = (id, title) =>
-  api.put(`/quizzes/${id}`, { title });
+export const updateQuiz = (id, title, mode) =>
+  api.put(`/quizzes/${id}`, { title, mode });
 
 export const deleteQuiz = (id) =>
   api.delete(`/quizzes/${id}`);
