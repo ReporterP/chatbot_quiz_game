@@ -20,6 +20,9 @@ export default function DashboardPage() {
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState('');
+  const [showLaunchModal, setShowLaunchModal] = useState(false);
+  const [launchQuizId, setLaunchQuizId] = useState(null);
+  const [launchMode, setLaunchMode] = useState('web');
 
   useEffect(() => {
     dispatch(loadQuizzes());
@@ -48,13 +51,20 @@ export default function DashboardPage() {
     dispatch(loadQuizzes());
   };
 
-  const handleLaunch = async (quizId, quizMode) => {
+  const openLaunchModal = (quizId) => {
+    setLaunchQuizId(quizId);
+    setLaunchMode('web');
+    setShowLaunchModal(true);
+  };
+
+  const handleLaunch = async () => {
     try {
-      const { data: room } = await createRoom(quizMode || 'web');
-      navigate(`/room/${room.id}`, { state: { quizId } });
+      const { data: room } = await createRoom(launchMode);
+      navigate(`/room/${room.id}`, { state: { quizId: launchQuizId } });
     } catch (err) {
       alert(err.response?.data?.error || 'Ошибка запуска');
     }
+    setShowLaunchModal(false);
   };
 
   const handleAiGenerate = async () => {
@@ -131,8 +141,7 @@ export default function DashboardPage() {
               const catQuestions = (q.categories || []).reduce((sum, c) => sum + (c.questions?.length || 0), 0);
               const orphanQuestions = q.questions?.length || 0;
               const totalQuestions = catQuestions + orphanQuestions;
-              const isBot = q.mode === 'bot';
-              const canLaunch = totalQuestions > 0 && (isBot ? hasBotToken : true);
+              const canLaunch = totalQuestions > 0;
               return (
               <div key={q.id} className="quiz-card">
                 <h3>{q.title}</h3>
@@ -143,9 +152,9 @@ export default function DashboardPage() {
                   <button className="btn btn-outline btn-sm" onClick={() => navigate(`/quiz/${q.id}`)}>Редактировать</button>
                   <button
                     className="btn btn-success btn-sm"
-                    onClick={() => handleLaunch(q.id, q.mode)}
+                    onClick={() => openLaunchModal(q.id)}
                     disabled={!canLaunch}
-                    title={isBot && !hasBotToken ? 'Добавьте токен бота в настройках' : !totalQuestions ? 'Добавьте хотя бы 1 вопрос' : ''}
+                    title={!totalQuestions ? 'Добавьте хотя бы 1 вопрос' : ''}
                   >
                     Запустить
                   </button>
@@ -197,6 +206,39 @@ export default function DashboardPage() {
                 <span>AI генерирует квиз, это может занять до минуты...</span>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showLaunchModal && (
+        <div className="launch-modal-overlay" onClick={() => setShowLaunchModal(false)}>
+          <div className="launch-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Запуск квиза</h3>
+            <p className="launch-modal-hint">Выберите способ проведения</p>
+            <div className="launch-mode-options">
+              <button className={`launch-mode-btn${launchMode === 'web' ? ' active' : ''}`} onClick={() => setLaunchMode('web')}>
+                <span className="launch-mode-icon">🌐</span>
+                <span className="launch-mode-label">Веб-страница</span>
+                <span className="launch-mode-desc">Участники через браузер</span>
+              </button>
+              {hasBotToken && (
+                <button className={`launch-mode-btn${launchMode === 'bot' ? ' active' : ''}`} onClick={() => setLaunchMode('bot')}>
+                  <span className="launch-mode-icon">🤖</span>
+                  <span className="launch-mode-label">Telegram-бот</span>
+                  <span className="launch-mode-desc">Участники через бота</span>
+                </button>
+              )}
+            </div>
+            {launchMode === 'bot' && (
+              <div className="launch-mode-warning">⚠️ Вопросы «Сортировка» и «Соотнесение» будут пропущены</div>
+            )}
+            {!hasBotToken && (
+              <p className="launch-no-bot-hint">Для бота добавьте токен в <a href="/settings">настройках</a></p>
+            )}
+            <div className="launch-modal-actions">
+              <button className="btn btn-success" onClick={handleLaunch}>Запустить</button>
+              <button className="btn btn-outline" onClick={() => setShowLaunchModal(false)}>Отмена</button>
+            </div>
           </div>
         </div>
       )}

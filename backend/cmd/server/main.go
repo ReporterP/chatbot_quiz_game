@@ -62,6 +62,7 @@ func main() {
 	playHandler := handlers.NewPlayHandler(roomService, sessionService, hub)
 
 	r := gin.Default()
+	r.MaxMultipartMemory = 100 << 20
 
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},

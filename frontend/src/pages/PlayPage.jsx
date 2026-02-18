@@ -5,6 +5,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from '@dnd-kit/utilities';
 import { playJoin, playReconnect, playAnswer, playAnswerComplex, playGetState, playUpdateNickname, playLeave } from '../api/play';
 import useRoomWebSocket from '../hooks/useRoomWebSocket';
+import MediaViewer, { Lightbox } from '../components/MediaViewer';
 import './PlayPage.css';
 
 const LS_KEY = 'quizgame_play';
@@ -278,18 +279,9 @@ export default function PlayPage() {
   const total = session?.total_questions || 0;
   const qType = question?.type || 'single_choice';
 
-  const renderMedia = () => {
-    if (!question?.images?.length) return null;
-    return (
-      <div className="play-images">
-        {question.images.map((item) => {
-          if (item.type === 'audio') return <audio key={item.id} src={item.url} controls className="play-audio" />;
-          if (item.type === 'video') return <video key={item.id} src={item.url} controls className="play-video" />;
-          return <img key={item.id} src={item.url} alt="" className="play-thumb" onClick={() => setLightboxImg(item.url)} />;
-        })}
-      </div>
-    );
-  };
+  const renderMedia = () => (
+    <MediaViewer items={question?.images} onLightbox={setLightboxImg} compact />
+  );
 
   if (phase === 'question' && question) {
     return (
@@ -384,7 +376,7 @@ export default function PlayPage() {
           {session?.answer_count != null && (
             <div className="play-answer-count">Ответили: {session.answer_count} из {session.participants?.length || members.length}</div>
           )}
-          {lightboxImg && <div className="lightbox" onClick={() => setLightboxImg(null)}><img src={lightboxImg} alt="" /></div>}
+          <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />
         </div>
       </div>
     );
@@ -415,7 +407,7 @@ export default function PlayPage() {
 
           {qType === 'ordering' && (
             <div className="play-ordering-list revealed">
-              {question.options.sort((a, b) => (a.correct_position || 0) - (b.correct_position || 0)).map((opt, idx) => {
+              {[...(question.options || [])].sort((a, b) => (a.correct_position || 0) - (b.correct_position || 0)).map((opt, idx) => {
                 const userIdx = orderItems.indexOf(opt.id);
                 const isCorrectPos = userIdx === idx;
                 return (
@@ -461,7 +453,7 @@ export default function PlayPage() {
               {myResult.answered && <span className="play-result-score">+{myResult.score} очков (Всего: {myResult.total_score})</span>}
             </div>
           )}
-          {lightboxImg && <div className="lightbox" onClick={() => setLightboxImg(null)}><img src={lightboxImg} alt="" /></div>}
+          <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />
         </div>
       </div>
     );

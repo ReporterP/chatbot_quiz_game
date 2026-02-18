@@ -5,6 +5,7 @@ import { fetchRoom, closeRoom, startQuizInRoom, roomReveal, roomNext, roomFinish
 import { fetchQuizzes } from '../api/quizzes';
 import { getSettings } from '../api/settings';
 import useRoomWebSocket from '../hooks/useRoomWebSocket';
+import MediaViewer, { Lightbox } from '../components/MediaViewer';
 import './SessionPage.css';
 import './RoomPage.css';
 
@@ -239,18 +240,9 @@ function GameScreen({ question, current, total, status, answerCount, participant
   const isRevealed = status === 'revealed';
   const qType = question.type || 'single_choice';
 
-  const renderMedia = () => {
-    if (!question.images?.length) return null;
-    return (
-      <div className="question-images-game">
-        {question.images.map((item) => {
-          if (item.type === 'audio') return <audio key={item.id} src={item.url} controls style={{ width: '100%', maxWidth: 400 }} />;
-          if (item.type === 'video') return <video key={item.id} src={item.url} controls style={{ width: '100%', maxWidth: 500, borderRadius: 8 }} />;
-          return <img key={item.id} src={item.url} alt="" className="game-thumb" onClick={() => setLightboxImg(item.url)} />;
-        })}
-      </div>
-    );
-  };
+  const renderMedia = () => (
+    <MediaViewer items={question.images} onLightbox={setLightboxImg} />
+  );
 
   return (
     <div className="game-screen">
@@ -277,7 +269,7 @@ function GameScreen({ question, current, total, status, answerCount, participant
       {qType === 'ordering' && (
         <div className="game-ordering">
           {isRevealed
-            ? question.options.sort((a, b) => (a.correct_position || 0) - (b.correct_position || 0)).map((opt, i) => (
+            ? [...(question.options || [])].sort((a, b) => (a.correct_position || 0) - (b.correct_position || 0)).map((opt, i) => (
                 <div key={opt.id} className="game-order-item correct"><span className="game-order-num">{i + 1}</span>{opt.text}</div>
               ))
             : question.options.map((opt) => (
@@ -321,7 +313,7 @@ function GameScreen({ question, current, total, status, answerCount, participant
         )}
       </div>
 
-      {lightboxImg && <div className="lightbox" onClick={() => setLightboxImg(null)}><img src={lightboxImg} alt="" /></div>}
+      <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />
     </div>
   );
 }

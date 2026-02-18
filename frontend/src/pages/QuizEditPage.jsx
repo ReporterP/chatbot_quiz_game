@@ -8,8 +8,9 @@ import Header from '../components/Header';
 import QuestionForm from '../components/QuestionForm';
 import { loadQuiz } from '../store/quizSlice';
 import { updateQuiz, createCategory, updateCategory as apiUpdateCategory, deleteCategory as apiDeleteCategory, reorderQuiz, createQuestion, updateQuestion, deleteQuestion, addQuestionImage, exportQuiz, importQuiz } from '../api/quizzes';
-import './QuizEditPage.css';
 import { createRoom } from '../api/rooms';
+import { getSettings } from '../api/settings';
+import './QuizEditPage.css';
 
 const PRESET_COLORS = ['#e21b3c', '#1368ce', '#d89e00', '#26890c', '#864cbf', '#0aa3b1'];
 
@@ -55,8 +56,10 @@ export default function QuizEditPage() {
   const loading = useSelector((s) => s.quiz.loading);
 
   const [title, setTitle] = useState('');
-  const [mode, setMode] = useState('web');
   const [addingCat, setAddingCat] = useState(false);
+  const [showLaunchModal, setShowLaunchModal] = useState(false);
+  const [launchMode, setLaunchMode] = useState('web');
+  const [hasBotToken, setHasBotToken] = useState(false);
   const [newCatTitle, setNewCatTitle] = useState('');
   const [addingQuestionCatId, setAddingQuestionCatId] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -77,11 +80,13 @@ export default function QuizEditPage() {
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
   );
 
-  useEffect(() => { dispatch(loadQuiz(id)); }, [id]);
+  useEffect(() => {
+    dispatch(loadQuiz(id));
+    getSettings().then(({ data }) => setHasBotToken(!!data.bot_token)).catch(() => {});
+  }, [id]);
   useEffect(() => {
     if (quiz) {
       setTitle(quiz.title);
-      setMode(quiz.mode || 'web');
       setCollapsedCats((prev) => {
         if (Object.keys(prev).length > 0) return prev;
         const map = {};
@@ -216,13 +221,8 @@ export default function QuizEditPage() {
     setTitle(val);
     clearTimeout(titleTimer.current);
     titleTimer.current = setTimeout(() => {
-      if (val.trim()) updateQuiz(id, val.trim(), mode);
+      if (val.trim()) updateQuiz(id, val.trim());
     }, 600);
-  };
-
-  const handleModeChange = (newMode) => {
-    setMode(newMode);
-    updateQuiz(id, title, newMode);
   };
 
   const handleCreateCategory = async (e) => {
@@ -274,7 +274,7 @@ export default function QuizEditPage() {
 
   const handleLaunch = async () => {
     try {
-      const { data: room } = await createRoom(mode);
+      const { data: room } = await createRoom(launchMode);
       navigate(`/room/${room.id}`, { state: { quizId: Number(id) } });
     } catch (err) {
       alert(err.response?.data?.error || 'Ошибка запуска');
@@ -318,13 +318,9 @@ export default function QuizEditPage() {
         <div className="quiz-edit-header">
           <button className="btn btn-outline btn-sm" onClick={() => navigate('/dashboard')}>← Назад</button>
           <input className="quiz-title-input" value={title} onChange={(e) => handleTitleChange(e.target.value)} placeholder="Название квиза" />
-          <button className="btn btn-success btn-sm" onClick={handleLaunch} disabled={totalQuestions === 0}>Запустить</button>
+          <button className="btn btn-success btn-sm" onClick={() => setShowLaunchModal(true)} disabled={totalQuestions === 0}>Запустить</button>
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div className="mode-toggle">
-            <button className={`mode-btn${mode === 'web' ? ' active' : ''}`} onClick={() => handleModeChange('web')}>Веб</button>
-            <button className={`mode-btn${mode === 'bot' ? ' active' : ''}`} onClick={() => handleModeChange('bot')}>Бот</button>
-          </div>
           <button className="btn btn-outline btn-sm" onClick={() => handleExport('json')}>Экспорт JSON</button>
           <button className="btn btn-outline btn-sm" onClick={() => handleExport('csv')}>Экспорт CSV</button>
           <label className="btn btn-outline btn-sm" style={{ cursor: 'pointer' }}>
@@ -355,7 +351,7 @@ export default function QuizEditPage() {
                             const q = questionsMap[qId];
                             if (!q) return null;
                             return editingId === q.id ? (
-                              <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data, cat.id)} onCancel={() => setEditingId(null)} quizMode={mode} />
+                              <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data, cat.id)} onCancel={() => setEditingId(null)} />
                             ) : (
                               <SortableItem key={q.id} id={qId}>
                                 <QuestionCard q={q} onEdit={() => setEditingId(q.id)} onDelete={() => handleDeleteQuestion(q.id)} />
@@ -364,7 +360,7 @@ export default function QuizEditPage() {
                           })}
                         </SortableContext>
                         {addingQuestionCatId === cat.id ? (
-                          <QuestionForm orderNum={qIds.length} onSave={(data) => handleSaveQuestion(cat.id, data)} onCancel={() => setAddingQuestionCatId(null)} quizMode={mode} />
+                          <QuestionForm orderNum={qIds.length} onSave={(data) => handleSaveQuestion(cat.id, data)} onCancel={() => setAddingQuestionCatId(null)} />
                         ) : (
                           <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => setAddingQuestionCatId(cat.id)}>+ Вопрос</button>
                         )}
@@ -385,7 +381,7 @@ export default function QuizEditPage() {
                 const q = questionsMap[qId];
                 if (!q) return null;
                 return editingId === q.id ? (
-                  <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data, null)} onCancel={() => setEditingId(null)} quizMode={mode} />
+                  <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data, null)} onCancel={() => setEditingId(null)} />
                 ) : (
                   <SortableItem key={q.id} id={qId}>
                     <QuestionCard q={q} onEdit={() => setEditingId(q.id)} onDelete={() => handleDeleteQuestion(q.id)} />
@@ -394,7 +390,7 @@ export default function QuizEditPage() {
               })}
             </SortableContext>
             {addingQuestionCatId === 'orphan' ? (
-              <QuestionForm orderNum={orphanIds.length} onSave={(data) => handleSaveQuestion(null, data)} onCancel={() => setAddingQuestionCatId(null)} quizMode={mode} />
+              <QuestionForm orderNum={orphanIds.length} onSave={(data) => handleSaveQuestion(null, data)} onCancel={() => setAddingQuestionCatId(null)} />
             ) : (
               <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => setAddingQuestionCatId('orphan')}>+ Вопрос</button>
             )}
@@ -423,6 +419,47 @@ export default function QuizEditPage() {
           <button className="btn btn-primary" style={{ width: '100%', marginTop: 16 }} onClick={() => setAddingCat(true)}>+ Добавить категорию</button>
         )}
       </div>
+
+      {showLaunchModal && (
+        <div className="launch-modal-overlay" onClick={() => setShowLaunchModal(false)}>
+          <div className="launch-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Запуск квиза</h3>
+            <p className="launch-modal-hint">Выберите способ проведения квиза</p>
+            <div className="launch-mode-options">
+              <button
+                className={`launch-mode-btn${launchMode === 'web' ? ' active' : ''}`}
+                onClick={() => setLaunchMode('web')}
+              >
+                <span className="launch-mode-icon">🌐</span>
+                <span className="launch-mode-label">Веб-страница</span>
+                <span className="launch-mode-desc">Участники подключаются через браузер</span>
+              </button>
+              {hasBotToken && (
+                <button
+                  className={`launch-mode-btn${launchMode === 'bot' ? ' active' : ''}`}
+                  onClick={() => setLaunchMode('bot')}
+                >
+                  <span className="launch-mode-icon">🤖</span>
+                  <span className="launch-mode-label">Telegram-бот</span>
+                  <span className="launch-mode-desc">Участники подключаются через бота</span>
+                </button>
+              )}
+            </div>
+            {launchMode === 'bot' && (
+              <div className="launch-mode-warning">
+                ⚠️ В режиме бота вопросы типа «Сортировка» и «Соотнесение» будут пропущены
+              </div>
+            )}
+            {!hasBotToken && (
+              <p className="launch-no-bot-hint">Для проведения через бота добавьте токен в <a href="/settings">настройках</a></p>
+            )}
+            <div className="launch-modal-actions">
+              <button className="btn btn-success" onClick={() => { setShowLaunchModal(false); handleLaunch(); }}>Запустить</button>
+              <button className="btn btn-outline" onClick={() => setShowLaunchModal(false)}>Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -502,7 +539,7 @@ function QuestionCard({ q, onEdit, onDelete }) {
         </div>
       ) : qType === 'ordering' ? (
         <div className="question-options ordering-preview">
-          {q.options?.sort((a, b) => (a.correct_position || 0) - (b.correct_position || 0)).map((o, i) => (
+          {[...(q.options || [])].sort((a, b) => (a.correct_position || 0) - (b.correct_position || 0)).map((o, i) => (
             <div key={o.id} className="question-option ordering-item">
               <span className="ordering-badge">{i + 1}</span> {o.text}
             </div>

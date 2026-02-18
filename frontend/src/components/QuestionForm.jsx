@@ -12,7 +12,7 @@ const QUESTION_TYPES = [
   { value: 'numeric', label: 'Числовой ответ' },
 ];
 
-export default function QuestionForm({ initial, orderNum, onSave, onCancel, quizMode }) {
+export default function QuestionForm({ initial, orderNum, onSave, onCancel }) {
   const initType = initial?.type || 'single_choice';
   const [type, setType] = useState(initType);
   const [text, setText] = useState(initial?.text || '');
@@ -108,12 +108,20 @@ export default function QuestionForm({ initial, orderNum, onSave, onCancel, quiz
     setOptions(next);
   };
 
+  const [uploadProgress, setUploadProgress] = useState('');
+
   const handleMediaUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
     setUploading(true);
     try {
-      for (const file of files) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.size > 100 * 1024 * 1024) {
+          setError(`Файл "${file.name}" слишком большой (макс. 100МБ)`);
+          continue;
+        }
+        setUploadProgress(`${i + 1}/${files.length}: ${file.name}`);
         const { data } = await uploadImage(file);
         const mediaType = data.type || 'image';
         if (initial?.id) {
@@ -123,8 +131,11 @@ export default function QuestionForm({ initial, orderNum, onSave, onCancel, quiz
           setMedia((prev) => [...prev, { url: data.url, type: mediaType, id: Date.now() + Math.random() }]);
         }
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      setError('Ошибка загрузки файла');
+    }
     setUploading(false);
+    setUploadProgress('');
     e.target.value = '';
   };
 
@@ -178,8 +189,6 @@ export default function QuestionForm({ initial, orderNum, onSave, onCancel, quiz
     });
   };
 
-  const isWebOnly = (t) => QUESTION_TYPES.find(qt => qt.value === t)?.webOnly;
-
   return (
     <form className="question-form" onSubmit={handleSubmit}>
       <h3>{initial ? 'Редактировать вопрос' : 'Новый вопрос'}</h3>
@@ -189,21 +198,18 @@ export default function QuestionForm({ initial, orderNum, onSave, onCancel, quiz
       <div className="form-group">
         <label>Тип вопроса</label>
         <div className="question-type-selector">
-          {QUESTION_TYPES.map((qt) => {
-            const disabled = quizMode === 'bot' && qt.webOnly;
-            return (
+          {QUESTION_TYPES.map((qt) => (
               <button
                 key={qt.value}
                 type="button"
-                className={`type-btn${type === qt.value ? ' active' : ''}${disabled ? ' disabled' : ''}`}
-                onClick={() => !disabled && handleTypeChange(qt.value)}
-                title={disabled ? 'Недоступно в режиме бота' : qt.label}
+                className={`type-btn${type === qt.value ? ' active' : ''}`}
+                onClick={() => handleTypeChange(qt.value)}
+                title={qt.label}
               >
                 {qt.label}
                 {qt.webOnly && <span className="web-badge">web</span>}
               </button>
-            );
-          })}
+          ))}
         </div>
       </div>
 
@@ -218,14 +224,19 @@ export default function QuestionForm({ initial, orderNum, onSave, onCancel, quiz
           {media.map((item, i) => (
             <div key={i} className="media-preview-wrap">
               {(!item.type || item.type === 'image') && <img src={item.url} alt="" className="img-preview" />}
-              {item.type === 'audio' && <audio src={item.url} controls className="audio-preview" />}
-              {item.type === 'video' && <video src={item.url} controls className="video-preview" />}
+              {item.type === 'audio' && (
+                <div className="audio-preview-card">
+                  <span className="audio-icon">🎵</span>
+                  <audio src={item.url} controls className="audio-preview" />
+                </div>
+              )}
+              {item.type === 'video' && <video src={item.url} controls preload="metadata" playsInline className="video-preview" />}
               <button type="button" className="img-remove" onClick={() => handleRemoveMedia(item)}>✕</button>
             </div>
           ))}
           <label className="img-upload-btn">
-            {uploading ? '...' : '+ Медиа'}
-            <input type="file" accept="image/*,audio/*,video/*" multiple onChange={handleMediaUpload} hidden />
+            {uploading ? uploadProgress || 'Загрузка...' : '+ Медиа'}
+            <input type="file" accept="image/*,audio/*,video/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.mp4,.webm,.mov" multiple onChange={handleMediaUpload} hidden />
           </label>
         </div>
       </div>

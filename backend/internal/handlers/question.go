@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"quiz-game-backend/internal/services"
@@ -283,10 +284,15 @@ func (h *QuestionHandler) UploadImage(c *gin.Context) {
 		return
 	}
 
-	ext := filepath.Ext(file.Filename)
+	ext := strings.ToLower(filepath.Ext(file.Filename))
 	imageExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true}
-	audioExts := map[string]bool{".mp3": true, ".ogg": true, ".wav": true, ".m4a": true}
-	videoExts := map[string]bool{".mp4": true, ".webm": true, ".mov": true}
+	audioExts := map[string]bool{".mp3": true, ".ogg": true, ".wav": true, ".m4a": true, ".aac": true, ".flac": true}
+	videoExts := map[string]bool{".mp4": true, ".webm": true, ".mov": true, ".avi": true, ".mkv": true}
+
+	if file.Size > 100<<20 {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "file too large (max 100MB)"})
+		return
+	}
 
 	mediaType := ""
 	if imageExts[ext] {

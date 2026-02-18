@@ -64,7 +64,23 @@ func (s *SessionService) CreateSessionInRoom(roomID, quizID, hostID uint) (*mode
 		return nil, errors.New("quiz not found")
 	}
 
+	var room models.Room
+	if err := s.db.First(&room, roomID).Error; err != nil {
+		return nil, errors.New("room not found")
+	}
+
 	questions := s.getOrderedQuestions(quizID)
+
+	if room.Mode == models.RoomModeBot {
+		var filtered []questionWithMeta
+		for _, q := range questions {
+			if q.Question.Type != models.QuestionTypeOrdering && q.Question.Type != models.QuestionTypeMatching {
+				filtered = append(filtered, q)
+			}
+		}
+		questions = filtered
+	}
+
 	if len(questions) == 0 {
 		return nil, errors.New("quiz must have at least one question")
 	}

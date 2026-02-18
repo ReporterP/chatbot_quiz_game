@@ -217,10 +217,6 @@ func (s *QuizService) CreateQuestion(quizID, hostID uint, input QuestionInput) (
 		qType = models.QuestionTypeSingleChoice
 	}
 
-	if quiz.Mode == "bot" && (qType == models.QuestionTypeOrdering || qType == models.QuestionTypeMatching) {
-		return nil, errors.New("ordering and matching questions are not available in bot mode")
-	}
-
 	if err := validateQuestionByType(qType, input.Options, input.CorrectNumber); err != nil {
 		return nil, err
 	}
@@ -276,10 +272,6 @@ func (s *QuizService) UpdateQuestion(questionID, hostID uint, input QuestionInpu
 	qType := input.Type
 	if qType == "" {
 		qType = models.QuestionTypeSingleChoice
-	}
-
-	if quiz.Mode == "bot" && (qType == models.QuestionTypeOrdering || qType == models.QuestionTypeMatching) {
-		return nil, errors.New("ordering and matching questions are not available in bot mode")
 	}
 
 	if err := validateQuestionByType(qType, input.Options, input.CorrectNumber); err != nil {

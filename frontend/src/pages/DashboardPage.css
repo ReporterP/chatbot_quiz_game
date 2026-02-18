@@ -212,4 +212,40 @@
   .ai-modal-actions {
     flex-direction: column;
   }
+  .launch-modal { padding: 20px; }
 }
+
+/* Launch modal (shared with QuizEditPage) */
+.launch-modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.launch-modal {
+  background: var(--bg, #1e1e2e); border-radius: 12px;
+  padding: 28px; max-width: 440px; width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.launch-modal h3 { margin: 0 0 6px; font-size: 20px; }
+.launch-modal-hint { color: rgba(255,255,255,0.5); font-size: 14px; margin-bottom: 18px; }
+.launch-mode-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.launch-mode-btn {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px; border: 2px solid rgba(255,255,255,0.1);
+  border-radius: 8px; background: transparent; cursor: pointer; text-align: left;
+  transition: all 0.15s; color: #fff;
+}
+.launch-mode-btn:hover { border-color: #3871dc; }
+.launch-mode-btn.active { border-color: #3871dc; background: rgba(56,113,220,0.08); }
+.launch-mode-icon { font-size: 28px; flex-shrink: 0; }
+.launch-mode-label { font-weight: 600; font-size: 15px; display: block; }
+.launch-mode-desc { font-size: 12px; color: rgba(255,255,255,0.5); display: block; }
+.launch-mode-warning {
+  background: rgba(255,180,0,0.12); border: 1px solid rgba(255,180,0,0.3);
+  border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #e5a100; margin-bottom: 16px;
+}
+.launch-no-bot-hint { font-size: 13px; color: rgba(255,255,255,0.5); margin-bottom: 16px; }
+.launch-no-bot-hint a { color: #3871dc; }
+.launch-modal-actions { display: flex; gap: 10px; }
+.launch-modal-actions .btn { flex: 1; }
