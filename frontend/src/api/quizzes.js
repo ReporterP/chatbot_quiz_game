@@ -42,8 +42,8 @@ export const uploadImage = (file) => {
   return api.post('/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } });
 };
 
-export const addQuestionImage = (questionId, url) =>
-  api.post(`/questions/${questionId}/images`, { url });
+export const addQuestionImage = (questionId, url, type = 'image') =>
+  api.post(`/questions/${questionId}/images`, { url, type });
 
 export const deleteQuestionImage = (imageId) =>
   api.delete(`/images/${imageId}`);

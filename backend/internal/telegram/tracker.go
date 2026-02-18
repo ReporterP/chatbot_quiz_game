@@ -416,13 +416,33 @@ func (t *SessionTracker) sendQuestion(info *SessionInfo, sessState *services.Ses
 	qd := sessState.CurrentQuestionData
 	current := sessState.CurrentQuestion
 	total := sessState.TotalQuestions
-	text := fmt.Sprintf("❓ <b>Вопрос %d из %d</b>\n\n%s", current, total, qd.Text)
+	qType := qd.Type
+	if qType == "" {
+		qType = "single_choice"
+	}
 
 	var opts []QuestionOption
 	for _, o := range qd.Options {
 		opts = append(opts, QuestionOption{ID: o.ID, Text: o.Text})
 	}
-	kb := AnswerKeyboard(info.SessionID, opts, 0)
+
+	var text string
+	var kb interface{}
+
+	switch qType {
+	case "ordering", "matching":
+		text = fmt.Sprintf("❓ <b>Вопрос %d из %d</b>\n\n%s\n\n⚠️ Этот вопрос доступен только в веб-версии.\nОткройте страницу квиза в браузере для ответа.", current, total, qd.Text)
+		kb = nil
+	case "multiple_choice":
+		text = fmt.Sprintf("❓ <b>Вопрос %d из %d</b>\n\n%s\n\n<i>Выберите все правильные ответы и нажмите «Подтвердить»</i>", current, total, qd.Text)
+		kb = MultiChoiceKeyboard(info.SessionID, opts, nil)
+	case "numeric":
+		text = fmt.Sprintf("❓ <b>Вопрос %d из %d</b>\n\n%s\n\n<i>Введите число в чат:</i>", current, total, qd.Text)
+		kb = nil
+	default:
+		text = fmt.Sprintf("❓ <b>Вопрос %d из %d</b>\n\n%s", current, total, qd.Text)
+		kb = AnswerKeyboard(info.SessionID, opts, 0)
+	}
 
 	info.mu.Lock()
 	participants := make(map[int64]*ParticipantInfo, len(info.Participants))
@@ -440,20 +460,29 @@ func (t *SessionTracker) sendQuestion(info *SessionInfo, sessState *services.Ses
 			}
 			info.mu.Unlock()
 		}
-		t.updateFSM(tgID, info.SessionID, qd.Text, opts, current, total)
+		t.updateFSMTyped(tgID, info.SessionID, qd.Text, qType, opts, current, total)
 	}
 }
 
 func (t *SessionTracker) updateFSM(userID int64, sessionID uint, qText string, opts []QuestionOption, current, total int) {
+	t.updateFSMTyped(userID, sessionID, qText, "single_choice", opts, current, total)
+}
+
+func (t *SessionTracker) updateFSMTyped(userID int64, sessionID uint, qText, qType string, opts []QuestionOption, current, total int) {
 	t.state.UpdateField(userID, func(s *UserState) {
 		s.QuestionData = &QuestionData{
 			Text:      qText,
+			Type:      qType,
 			SessionID: sessionID,
 			Options:   opts,
 		}
 		s.CurrentQNum = current
 		s.TotalQuestions = total
 		s.SelectedOptionID = 0
+		s.SelectedOptionIDs = nil
+		if qType == "numeric" {
+			s.State = StateEnterNumeric
+		}
 	})
 }
 
@@ -472,10 +501,38 @@ func (t *SessionTracker) buildResultText(qd *services.QuestionResponse, result *
 
 	correctText := ""
 	if qd != nil {
-		for _, opt := range qd.Options {
-			if opt.IsCorrect != nil && *opt.IsCorrect {
-				correctText = fmt.Sprintf("\n\nПравильный ответ: <b>%s</b>", opt.Text)
-				break
+		qType := qd.Type
+		if qType == "" {
+			qType = "single_choice"
+		}
+		switch qType {
+		case "single_choice":
+			for _, opt := range qd.Options {
+				if opt.IsCorrect != nil && *opt.IsCorrect {
+					correctText = fmt.Sprintf("\n\nПравильный ответ: <b>%s</b>", opt.Text)
+					break
+				}
+			}
+		case "multiple_choice":
+			var correct []string
+			for _, opt := range qd.Options {
+				if opt.IsCorrect != nil && *opt.IsCorrect {
+					correct = append(correct, opt.Text)
+				}
+			}
+			if len(correct) > 0 {
+				correctText = "\n\nПравильные: <b>" + strings.Join(correct, ", ") + "</b>"
+			}
+		case "ordering":
+			correctText = "\n\n<i>Правильный порядок показан в веб-версии</i>"
+		case "matching":
+			correctText = "\n\n<i>Правильные пары показаны в веб-версии</i>"
+		case "numeric":
+			if qd.CorrectNumber != nil {
+				correctText = fmt.Sprintf("\n\nПравильный ответ: <b>%g</b>", *qd.CorrectNumber)
+				if qd.Tolerance != nil && *qd.Tolerance > 0 {
+					correctText += fmt.Sprintf(" (±%g)", *qd.Tolerance)
+				}
 			}
 		}
 	}

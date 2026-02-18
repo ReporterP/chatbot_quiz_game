@@ -156,3 +156,26 @@ func AnswerKeyboard(sessionID uint, options []QuestionOption, selectedID uint) *
 	}
 	return &InlineKeyboardMarkup{InlineKeyboard: rows}
 }
+
+func MultiChoiceKeyboard(sessionID uint, options []QuestionOption, selectedIDs []uint) *InlineKeyboardMarkup {
+	selected := make(map[uint]bool)
+	for _, id := range selectedIDs {
+		selected[id] = true
+	}
+	var rows [][]InlineKeyboardButton
+	for _, opt := range options {
+		text := opt.Text
+		if selected[opt.ID] {
+			text = "☑ " + text
+		} else {
+			text = "☐ " + text
+		}
+		rows = append(rows, []InlineKeyboardButton{
+			{Text: text, CallbackData: fmt.Sprintf("multi:%d:%d", sessionID, opt.ID)},
+		})
+	}
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "✅ Подтвердить", CallbackData: fmt.Sprintf("multisubmit:%d:0", sessionID)},
+	})
+	return &InlineKeyboardMarkup{InlineKeyboard: rows}
+}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
@@ -280,6 +281,42 @@ func (h *PlayHandler) Leave(c *gin.Context) {
 	})
 
 	c.JSON(http.StatusOK, MessageResponse{Message: "left room"})
+}
+
+type PlayComplexAnswerRequest struct {
+	SessionID  uint            `json:"session_id" binding:"required"`
+	MemberID   uint            `json:"member_id" binding:"required"`
+	Token      string          `json:"token" binding:"required"`
+	AnswerData json.RawMessage `json:"answer_data" binding:"required"`
+}
+
+func (h *PlayHandler) AnswerComplex(c *gin.Context) {
+	var req PlayComplexAnswerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	if err := h.sessionService.SubmitComplexAnswerByMember(req.SessionID, req.MemberID, req.AnswerData); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	var session services.SessionState
+	if s, err := h.sessionService.GetSession(req.SessionID); err == nil {
+		session = *s
+	}
+
+	h.hub.Broadcast(req.SessionID, ws.WSMessage{
+		Type: "answer_received",
+		Data: gin.H{"session_id": req.SessionID},
+	})
+	h.hub.BroadcastToRoom(session.RoomID, ws.WSMessage{
+		Type: "answer_received",
+		Data: gin.H{"session_id": req.SessionID},
+	})
+
+	c.JSON(http.StatusOK, MessageResponse{Message: "answer accepted"})
 }
 
 func (h *PlayHandler) GetMyResult(c *gin.Context) {

@@ -15,14 +15,19 @@ import (
 )
 
 type ExportOption struct {
-	Text      string `json:"text"`
-	IsCorrect bool   `json:"is_correct"`
-	Color     string `json:"color,omitempty"`
+	Text            string `json:"text"`
+	IsCorrect       bool   `json:"is_correct"`
+	Color           string `json:"color,omitempty"`
+	CorrectPosition *int   `json:"correct_position,omitempty"`
+	MatchText       string `json:"match_text,omitempty"`
 }
 
 type ExportQuestion struct {
-	Text    string         `json:"text"`
-	Options []ExportOption `json:"options"`
+	Text          string         `json:"text"`
+	Type          string         `json:"type,omitempty"`
+	CorrectNumber *float64       `json:"correct_number,omitempty"`
+	Tolerance     *float64       `json:"tolerance,omitempty"`
+	Options       []ExportOption `json:"options"`
 }
 
 type ExportCategory struct {
@@ -56,10 +61,11 @@ func (h *QuizHandler) ExportQuiz(c *gin.Context) {
 	for _, cat := range quiz.Categories {
 		ec := ExportCategory{Title: cat.Title}
 		for _, q := range cat.Questions {
-			eq := ExportQuestion{Text: q.Text}
+			eq := ExportQuestion{Text: q.Text, Type: q.Type, CorrectNumber: q.CorrectNumber, Tolerance: q.Tolerance}
 			for _, o := range q.Options {
 				eq.Options = append(eq.Options, ExportOption{
 					Text: o.Text, IsCorrect: o.IsCorrect, Color: o.Color,
+					CorrectPosition: o.CorrectPosition, MatchText: o.MatchText,
 				})
 			}
 			ec.Questions = append(ec.Questions, eq)
@@ -67,10 +73,11 @@ func (h *QuizHandler) ExportQuiz(c *gin.Context) {
 		data.Categories = append(data.Categories, ec)
 	}
 	for _, q := range quiz.Questions {
-		eq := ExportQuestion{Text: q.Text}
+		eq := ExportQuestion{Text: q.Text, Type: q.Type, CorrectNumber: q.CorrectNumber, Tolerance: q.Tolerance}
 		for _, o := range q.Options {
 			eq.Options = append(eq.Options, ExportOption{
 				Text: o.Text, IsCorrect: o.IsCorrect, Color: o.Color,
+				CorrectPosition: o.CorrectPosition, MatchText: o.MatchText,
 			})
 		}
 		data.Questions = append(data.Questions, eq)
@@ -83,24 +90,25 @@ func (h *QuizHandler) ExportQuiz(c *gin.Context) {
 		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.csv\"", filename))
 
 		w := csv.NewWriter(c.Writer)
-		w.Write([]string{"category", "question", "option1", "option2", "option3", "option4", "correct", "color1", "color2", "color3", "color4"})
+		w.Write([]string{"category", "question", "type", "option1", "option2", "option3", "option4", "correct", "color1", "color2", "color3", "color4"})
 
 		writeQuestions := func(catTitle string, questions []ExportQuestion) {
 			for _, q := range questions {
-				row := make([]string, 11)
+				row := make([]string, 12)
 				row[0] = catTitle
 				row[1] = q.Text
+				row[2] = q.Type
 				correctIdx := ""
 				for i, o := range q.Options {
 					if i < 4 {
-						row[2+i] = o.Text
-						row[7+i] = o.Color
+						row[3+i] = o.Text
+						row[8+i] = o.Color
 					}
 					if o.IsCorrect {
 						correctIdx = strconv.Itoa(i + 1)
 					}
 				}
-				row[6] = correctIdx
+				row[7] = correctIdx
 				w.Write(row)
 			}
 		}
@@ -180,8 +188,13 @@ func parseCSV(data []byte) (ExportData, error) {
 	var orphans []ExportQuestion
 
 	for _, row := range records[1:] {
-		if len(row) < 7 {
-			continue
+		if len(row) < 8 {
+			if len(row) >= 7 {
+				// Legacy format without type column
+				row = append([]string{row[0], row[1], ""}, row[2:]...)
+			} else {
+				continue
+			}
 		}
 
 		catTitle := strings.TrimSpace(row[0])
@@ -189,21 +202,22 @@ func parseCSV(data []byte) (ExportData, error) {
 		if questionText == "" {
 			continue
 		}
+		qType := strings.TrimSpace(row[2])
 
-		correctIdx, _ := strconv.Atoi(row[6])
+		correctIdx, _ := strconv.Atoi(row[7])
 
 		var opts []ExportOption
 		for i := 0; i < 4; i++ {
 			text := ""
-			if i+2 < len(row) {
-				text = strings.TrimSpace(row[2+i])
+			if i+3 < len(row) {
+				text = strings.TrimSpace(row[3+i])
 			}
 			if text == "" {
 				continue
 			}
 			color := ""
-			if 7+i < len(row) {
-				color = strings.TrimSpace(row[7+i])
+			if 8+i < len(row) {
+				color = strings.TrimSpace(row[8+i])
 			}
 			opts = append(opts, ExportOption{
 				Text:      text,
@@ -212,7 +226,7 @@ func parseCSV(data []byte) (ExportData, error) {
 			})
 		}
 
-		eq := ExportQuestion{Text: questionText, Options: opts}
+		eq := ExportQuestion{Text: questionText, Type: qType, Options: opts}
 
 		if catTitle == "" {
 			orphans = append(orphans, eq)
@@ -233,26 +247,35 @@ func parseCSV(data []byte) (ExportData, error) {
 }
 
 func importToServiceInput(data ExportData) services.ImportInput {
+	mapOptions := func(opts []ExportOption) []services.OptionInput {
+		var result []services.OptionInput
+		for _, o := range opts {
+			result = append(result, services.OptionInput{
+				Text: o.Text, IsCorrect: o.IsCorrect, Color: o.Color,
+				CorrectPosition: o.CorrectPosition, MatchText: o.MatchText,
+			})
+		}
+		return result
+	}
+
 	input := services.ImportInput{}
 	for _, cat := range data.Categories {
 		ic := services.ImportCategory{Title: cat.Title}
 		for _, q := range cat.Questions {
-			iq := services.ImportQuestion{Text: q.Text}
-			for _, o := range q.Options {
-				iq.Options = append(iq.Options, services.OptionInput{
-					Text: o.Text, IsCorrect: o.IsCorrect, Color: o.Color,
-				})
+			iq := services.ImportQuestion{
+				Text: q.Text, Type: q.Type,
+				CorrectNumber: q.CorrectNumber, Tolerance: q.Tolerance,
+				Options: mapOptions(q.Options),
 			}
 			ic.Questions = append(ic.Questions, iq)
 		}
 		input.Categories = append(input.Categories, ic)
 	}
 	for _, q := range data.Questions {
-		iq := services.ImportQuestion{Text: q.Text}
-		for _, o := range q.Options {
-			iq.Options = append(iq.Options, services.OptionInput{
-				Text: o.Text, IsCorrect: o.IsCorrect, Color: o.Color,
-			})
+		iq := services.ImportQuestion{
+			Text: q.Text, Type: q.Type,
+			CorrectNumber: q.CorrectNumber, Tolerance: q.Tolerance,
+			Options: mapOptions(q.Options),
 		}
 		input.Questions = append(input.Questions, iq)
 	}

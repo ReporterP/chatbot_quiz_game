@@ -233,32 +233,80 @@ function WaitingScreen({ room, members, participants, qrUrl, playUrl, isWeb, onS
   );
 }
 
+const TYPE_LABELS = { single_choice: 'Один ответ', multiple_choice: 'Несколько ответов', ordering: 'Сортировка', matching: 'Соотнесение', numeric: 'Числовой' };
+
 function GameScreen({ question, current, total, status, answerCount, participantCount, onReveal, onNext, onFinish, isLast, lightboxImg, setLightboxImg }) {
   const isRevealed = status === 'revealed';
+  const qType = question.type || 'single_choice';
+
+  const renderMedia = () => {
+    if (!question.images?.length) return null;
+    return (
+      <div className="question-images-game">
+        {question.images.map((item) => {
+          if (item.type === 'audio') return <audio key={item.id} src={item.url} controls style={{ width: '100%', maxWidth: 400 }} />;
+          if (item.type === 'video') return <video key={item.id} src={item.url} controls style={{ width: '100%', maxWidth: 500, borderRadius: 8 }} />;
+          return <img key={item.id} src={item.url} alt="" className="game-thumb" onClick={() => setLightboxImg(item.url)} />;
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="game-screen">
-      {question.category_name && <div className="category-badge">{question.category_name}</div>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center', marginBottom: 8 }}>
+        {question.category_name && <div className="category-badge">{question.category_name}</div>}
+        <span className="game-type-badge">{TYPE_LABELS[qType] || qType}</span>
+      </div>
       <div className="question-counter">Вопрос {current} из {total}</div>
       <div className="question-text">{question.text}</div>
+      {renderMedia()}
 
-      {question.images?.length > 0 && (
-        <div className="question-images-game">
-          {question.images.map((img) => (
-            <img key={img.id} src={img.url} alt="" className="game-thumb" onClick={() => setLightboxImg(img.url)} />
+      {(qType === 'single_choice' || qType === 'multiple_choice') && (
+        <div className="game-options">
+          {question.options.map((opt) => {
+            let cls = 'game-option';
+            if (isRevealed && opt.is_correct) cls += ' correct';
+            if (isRevealed && !opt.is_correct) cls += ' wrong';
+            const bg = opt.color || '#444';
+            return <div key={opt.id} className={cls} style={{ background: isRevealed ? undefined : bg }}>{qType === 'multiple_choice' && isRevealed && <span style={{ marginRight: 6 }}>{opt.is_correct ? '✓' : '✗'}</span>}{opt.text}</div>;
+          })}
+        </div>
+      )}
+
+      {qType === 'ordering' && (
+        <div className="game-ordering">
+          {isRevealed
+            ? question.options.sort((a, b) => (a.correct_position || 0) - (b.correct_position || 0)).map((opt, i) => (
+                <div key={opt.id} className="game-order-item correct"><span className="game-order-num">{i + 1}</span>{opt.text}</div>
+              ))
+            : question.options.map((opt) => (
+                <div key={opt.id} className="game-order-item"><span className="game-order-num">?</span>{opt.text}</div>
+              ))
+          }
+        </div>
+      )}
+
+      {qType === 'matching' && (
+        <div className="game-matching">
+          {question.options.map((opt) => (
+            <div key={opt.id} className={`game-match-row${isRevealed ? ' revealed' : ''}`}>
+              <span className="game-match-left">{opt.text}</span>
+              <span className="game-match-arrow">→</span>
+              <span className="game-match-right">{isRevealed ? opt.match_text : '???'}</span>
+            </div>
           ))}
         </div>
       )}
 
-      <div className="game-options">
-        {question.options.map((opt) => {
-          let cls = 'game-option';
-          if (isRevealed && opt.is_correct) cls += ' correct';
-          if (isRevealed && !opt.is_correct) cls += ' wrong';
-          const bg = opt.color || '#444';
-          return <div key={opt.id} className={cls} style={{ background: isRevealed ? undefined : bg }}>{opt.text}</div>;
-        })}
-      </div>
+      {qType === 'numeric' && (
+        <div className="game-numeric">
+          {isRevealed
+            ? <div className="game-numeric-answer">Правильный ответ: <strong>{question.correct_number}</strong>{question.tolerance ? ` (±${question.tolerance})` : ''}</div>
+            : <div className="game-numeric-answer">Участники вводят число...</div>
+          }
+        </div>
+      )}
 
       <div className="game-controls">
         <span className="answer-count">Ответили: {answerCount} / {participantCount}</span>
@@ -269,17 +317,11 @@ function GameScreen({ question, current, total, status, answerCount, participant
           </>
         )}
         {status === 'revealed' && (
-          <button className="btn-game btn-next" onClick={onNext}>
-            {isLast ? 'Показать результаты' : 'Следующий вопрос →'}
-          </button>
+          <button className="btn-game btn-next" onClick={onNext}>{isLast ? 'Показать результаты' : 'Следующий вопрос →'}</button>
         )}
       </div>
 
-      {lightboxImg && (
-        <div className="lightbox" onClick={() => setLightboxImg(null)}>
-          <img src={lightboxImg} alt="" />
-        </div>
-      )}
+      {lightboxImg && <div className="lightbox" onClick={() => setLightboxImg(null)}><img src={lightboxImg} alt="" /></div>}
     </div>
   );
 }

@@ -249,9 +249,10 @@ export default function QuizEditPage() {
   const handleSaveQuestion = async (catId, data) => {
     if (catId) data.category_id = catId;
     const { data: createdQuestion } = await createQuestion(id, data);
-    if (data._images?.length && createdQuestion?.id) {
-      for (const url of data._images) {
-        await addQuestionImage(createdQuestion.id, url);
+    if (createdQuestion?.id) {
+      const mediaItems = data._media || data._images?.map(url => ({ url, type: 'image' })) || [];
+      for (const m of mediaItems) {
+        await addQuestionImage(createdQuestion.id, m.url, m.type || 'image');
       }
     }
     setAddingQuestionCatId(null);
@@ -354,7 +355,7 @@ export default function QuizEditPage() {
                             const q = questionsMap[qId];
                             if (!q) return null;
                             return editingId === q.id ? (
-                              <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data, cat.id)} onCancel={() => setEditingId(null)} />
+                              <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data, cat.id)} onCancel={() => setEditingId(null)} quizMode={mode} />
                             ) : (
                               <SortableItem key={q.id} id={qId}>
                                 <QuestionCard q={q} onEdit={() => setEditingId(q.id)} onDelete={() => handleDeleteQuestion(q.id)} />
@@ -363,7 +364,7 @@ export default function QuizEditPage() {
                           })}
                         </SortableContext>
                         {addingQuestionCatId === cat.id ? (
-                          <QuestionForm orderNum={qIds.length} onSave={(data) => handleSaveQuestion(cat.id, data)} onCancel={() => setAddingQuestionCatId(null)} />
+                          <QuestionForm orderNum={qIds.length} onSave={(data) => handleSaveQuestion(cat.id, data)} onCancel={() => setAddingQuestionCatId(null)} quizMode={mode} />
                         ) : (
                           <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => setAddingQuestionCatId(cat.id)}>+ Вопрос</button>
                         )}
@@ -384,7 +385,7 @@ export default function QuizEditPage() {
                 const q = questionsMap[qId];
                 if (!q) return null;
                 return editingId === q.id ? (
-                  <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data, null)} onCancel={() => setEditingId(null)} />
+                  <QuestionForm key={q.id} initial={q} orderNum={q.order_num} onSave={(data) => handleUpdateQuestion(q.id, data, null)} onCancel={() => setEditingId(null)} quizMode={mode} />
                 ) : (
                   <SortableItem key={q.id} id={qId}>
                     <QuestionCard q={q} onEdit={() => setEditingId(q.id)} onDelete={() => handleDeleteQuestion(q.id)} />
@@ -393,7 +394,7 @@ export default function QuizEditPage() {
               })}
             </SortableContext>
             {addingQuestionCatId === 'orphan' ? (
-              <QuestionForm orderNum={orphanIds.length} onSave={(data) => handleSaveQuestion(null, data)} onCancel={() => setAddingQuestionCatId(null)} />
+              <QuestionForm orderNum={orphanIds.length} onSave={(data) => handleSaveQuestion(null, data)} onCancel={() => setAddingQuestionCatId(null)} quizMode={mode} />
             ) : (
               <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => setAddingQuestionCatId('orphan')}>+ Вопрос</button>
             )}
@@ -454,12 +455,24 @@ function CategoryHeader({ cat, onRename, onDelete, collapsed, onToggle, question
   );
 }
 
+const TYPE_LABELS = {
+  single_choice: 'Один ответ',
+  multiple_choice: 'Несколько ответов',
+  ordering: 'Сортировка',
+  matching: 'Соотнесение',
+  numeric: 'Числовой',
+};
+
 function QuestionCard({ q, onEdit, onDelete }) {
+  const qType = q.type || 'single_choice';
   return (
     <div className="question-card">
       <div className="question-card-header">
-        <h4>{q.text}</h4>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div className="question-card-title-row">
+          <span className={`q-type-badge q-type-${qType}`}>{TYPE_LABELS[qType] || qType}</span>
+          <h4>{q.text}</h4>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
           <button className="btn btn-outline btn-sm" onClick={onEdit}>Изменить</button>
           <button className="btn btn-danger btn-sm" onClick={onDelete}>Удалить</button>
         </div>
@@ -467,19 +480,45 @@ function QuestionCard({ q, onEdit, onDelete }) {
       {q.images?.length > 0 && (
         <div className="question-images-preview">
           {q.images.map((img) => (
-            <img key={img.id} src={img.url} alt="" className="q-thumb" />
+            <div key={img.id} className="q-media-thumb">
+              {(!img.type || img.type === 'image') && <img src={img.url} alt="" className="q-thumb" />}
+              {img.type === 'audio' && <span className="q-media-icon">🎵</span>}
+              {img.type === 'video' && <span className="q-media-icon">🎬</span>}
+            </div>
           ))}
         </div>
       )}
-      <div className="question-options">
-        {q.options?.map((o) => (
-          <div key={o.id} className={`question-option ${o.is_correct ? 'correct' : ''}`} style={o.color ? { borderLeftColor: o.color } : {}}>
-            <span className="dot" style={o.color ? { background: o.color } : {}} />
-            {o.text}
-            {o.is_correct && ' ✓'}
-          </div>
-        ))}
-      </div>
+      {qType === 'numeric' ? (
+        <div className="question-options">
+          <div className="question-option correct">Правильный ответ: {q.correct_number}{q.tolerance ? ` (±${q.tolerance})` : ''}</div>
+        </div>
+      ) : qType === 'matching' ? (
+        <div className="question-options matching-preview">
+          {q.options?.map((o) => (
+            <div key={o.id} className="question-option matching-pair">
+              <span>{o.text}</span> <span className="matching-arrow">↔</span> <span>{o.match_text}</span>
+            </div>
+          ))}
+        </div>
+      ) : qType === 'ordering' ? (
+        <div className="question-options ordering-preview">
+          {q.options?.sort((a, b) => (a.correct_position || 0) - (b.correct_position || 0)).map((o, i) => (
+            <div key={o.id} className="question-option ordering-item">
+              <span className="ordering-badge">{i + 1}</span> {o.text}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="question-options">
+          {q.options?.map((o) => (
+            <div key={o.id} className={`question-option ${o.is_correct ? 'correct' : ''}`} style={o.color ? { borderLeftColor: o.color } : {}}>
+              <span className="dot" style={o.color ? { background: o.color } : {}} />
+              {o.text}
+              {o.is_correct && ' ✓'}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

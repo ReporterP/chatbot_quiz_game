@@ -76,6 +76,62 @@ func AutoMigrate(db *gorm.DB) {
 		END IF;
 	END $$;`)
 
+	// Add type to questions if missing
+	db.Exec(`DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'questions')
+		   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'questions' AND column_name = 'type')
+		THEN
+			ALTER TABLE questions ADD COLUMN type varchar(20) NOT NULL DEFAULT 'single_choice';
+		END IF;
+	END $$;`)
+
+	// Add correct_number, tolerance to questions if missing
+	db.Exec(`DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'questions')
+		   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'questions' AND column_name = 'correct_number')
+		THEN
+			ALTER TABLE questions ADD COLUMN correct_number double precision;
+			ALTER TABLE questions ADD COLUMN tolerance double precision;
+		END IF;
+	END $$;`)
+
+	// Add correct_position, match_text to options if missing
+	db.Exec(`DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'options')
+		   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'options' AND column_name = 'correct_position')
+		THEN
+			ALTER TABLE options ADD COLUMN correct_position integer;
+			ALTER TABLE options ADD COLUMN match_text varchar(500) DEFAULT '';
+		END IF;
+	END $$;`)
+
+	// Add answer_data to answers if missing
+	db.Exec(`DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'answers')
+		   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'answers' AND column_name = 'answer_data')
+		THEN
+			ALTER TABLE answers ADD COLUMN answer_data text DEFAULT '';
+		END IF;
+	END $$;`)
+
+	// Relax NOT NULL on option_id in answers (for non-choice question types)
+	db.Exec("ALTER TABLE answers ALTER COLUMN option_id DROP NOT NULL")
+	db.Exec("ALTER TABLE answers ALTER COLUMN option_id SET DEFAULT 0")
+
+	// Add type to question_images if missing (for audio/video support)
+	db.Exec(`DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'question_images')
+		   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'question_images' AND column_name = 'type')
+		THEN
+			ALTER TABLE question_images ADD COLUMN type varchar(10) NOT NULL DEFAULT 'image';
+		END IF;
+	END $$;`)
+
 	err := db.AutoMigrate(
 		&models.Host{},
 		&models.TelegramUser{},

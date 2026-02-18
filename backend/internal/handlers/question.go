@@ -23,10 +23,13 @@ func NewQuestionHandler(quizService *services.QuizService) *QuestionHandler {
 }
 
 type CreateQuestionRequest struct {
-	Text       string                 `json:"text" binding:"required" example:"What is 2+2?"`
-	OrderNum   int                    `json:"order_num" example:"1"`
-	CategoryID *uint                  `json:"category_id"`
-	Options    []services.OptionInput `json:"options" binding:"required,min=2,max=4,dive"`
+	Text          string                 `json:"text" binding:"required"`
+	OrderNum      int                    `json:"order_num"`
+	CategoryID    *uint                  `json:"category_id"`
+	Type          string                 `json:"type"`
+	CorrectNumber *float64               `json:"correct_number"`
+	Tolerance     *float64               `json:"tolerance"`
+	Options       []services.OptionInput `json:"options"`
 }
 
 // CreateQuestion godoc
@@ -54,7 +57,17 @@ func (h *QuestionHandler) CreateQuestion(c *gin.Context) {
 		return
 	}
 
-	question, err := h.quizService.CreateQuestion(uint(quizID), hostID, req.Text, req.OrderNum, req.CategoryID, req.Options)
+	input := services.QuestionInput{
+		Text:          req.Text,
+		OrderNum:      req.OrderNum,
+		CategoryID:    req.CategoryID,
+		Type:          req.Type,
+		CorrectNumber: req.CorrectNumber,
+		Tolerance:     req.Tolerance,
+		Options:       req.Options,
+	}
+
+	question, err := h.quizService.CreateQuestion(uint(quizID), hostID, input)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		return
@@ -88,7 +101,17 @@ func (h *QuestionHandler) UpdateQuestion(c *gin.Context) {
 		return
 	}
 
-	question, err := h.quizService.UpdateQuestion(uint(questionID), hostID, req.Text, req.OrderNum, req.CategoryID, req.Options)
+	input := services.QuestionInput{
+		Text:          req.Text,
+		OrderNum:      req.OrderNum,
+		CategoryID:    req.CategoryID,
+		Type:          req.Type,
+		CorrectNumber: req.CorrectNumber,
+		Tolerance:     req.Tolerance,
+		Options:       req.Options,
+	}
+
+	question, err := h.quizService.UpdateQuestion(uint(questionID), hostID, input)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		return
@@ -261,8 +284,18 @@ func (h *QuestionHandler) UploadImage(c *gin.Context) {
 	}
 
 	ext := filepath.Ext(file.Filename)
-	allowed := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true}
-	if !allowed[ext] {
+	imageExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true}
+	audioExts := map[string]bool{".mp3": true, ".ogg": true, ".wav": true, ".m4a": true}
+	videoExts := map[string]bool{".mp4": true, ".webm": true, ".mov": true}
+
+	mediaType := ""
+	if imageExts[ext] {
+		mediaType = "image"
+	} else if audioExts[ext] {
+		mediaType = "audio"
+	} else if videoExts[ext] {
+		mediaType = "video"
+	} else {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "unsupported file format"})
 		return
 	}
@@ -276,7 +309,7 @@ func (h *QuestionHandler) UploadImage(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"url": "/uploads/" + filename})
+	c.JSON(http.StatusOK, gin.H{"url": "/uploads/" + filename, "type": mediaType})
 }
 
 // AddQuestionImage godoc
@@ -296,14 +329,15 @@ func (h *QuestionHandler) AddQuestionImage(c *gin.Context) {
 	}
 
 	var req struct {
-		URL string `json:"url" binding:"required"`
+		URL  string `json:"url" binding:"required"`
+		Type string `json:"type"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	img, err := h.quizService.AddQuestionImage(uint(questionID), hostID, req.URL)
+	img, err := h.quizService.AddQuestionImage(uint(questionID), hostID, req.URL, req.Type)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		return

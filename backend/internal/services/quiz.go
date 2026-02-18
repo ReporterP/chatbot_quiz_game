@@ -196,21 +196,43 @@ func (s *QuizService) ReorderQuiz(quizID, hostID uint, order ReorderInput) error
 	return nil
 }
 
-func (s *QuizService) CreateQuestion(quizID, hostID uint, text string, orderNum int, categoryID *uint, options []OptionInput) (*models.Question, error) {
+type QuestionInput struct {
+	Text          string        `json:"text"`
+	OrderNum      int           `json:"order_num"`
+	CategoryID    *uint         `json:"category_id"`
+	Type          string        `json:"type"`
+	CorrectNumber *float64      `json:"correct_number"`
+	Tolerance     *float64      `json:"tolerance"`
+	Options       []OptionInput `json:"options"`
+}
+
+func (s *QuizService) CreateQuestion(quizID, hostID uint, input QuestionInput) (*models.Question, error) {
 	var quiz models.Quiz
 	if err := s.db.Where("id = ? AND host_id = ?", quizID, hostID).First(&quiz).Error; err != nil {
 		return nil, errors.New("quiz not found")
 	}
 
-	if err := validateOptions(options); err != nil {
+	qType := input.Type
+	if qType == "" {
+		qType = models.QuestionTypeSingleChoice
+	}
+
+	if quiz.Mode == "bot" && (qType == models.QuestionTypeOrdering || qType == models.QuestionTypeMatching) {
+		return nil, errors.New("ordering and matching questions are not available in bot mode")
+	}
+
+	if err := validateQuestionByType(qType, input.Options, input.CorrectNumber); err != nil {
 		return nil, err
 	}
 
 	question := models.Question{
-		QuizID:     quizID,
-		CategoryID: categoryID,
-		Text:       text,
-		OrderNum:   orderNum,
+		QuizID:        quizID,
+		CategoryID:    input.CategoryID,
+		Type:          qType,
+		Text:          input.Text,
+		OrderNum:      input.OrderNum,
+		CorrectNumber: input.CorrectNumber,
+		Tolerance:     input.Tolerance,
 	}
 
 	tx := s.db.Begin()
@@ -219,12 +241,14 @@ func (s *QuizService) CreateQuestion(quizID, hostID uint, text string, orderNum 
 		return nil, err
 	}
 
-	for _, o := range options {
+	for _, o := range input.Options {
 		opt := models.Option{
-			QuestionID: question.ID,
-			Text:       o.Text,
-			IsCorrect:  o.IsCorrect,
-			Color:      o.Color,
+			QuestionID:      question.ID,
+			Text:            o.Text,
+			IsCorrect:       o.IsCorrect,
+			Color:           o.Color,
+			CorrectPosition: o.CorrectPosition,
+			MatchText:       o.MatchText,
 		}
 		if err := tx.Create(&opt).Error; err != nil {
 			tx.Rollback()
@@ -238,7 +262,7 @@ func (s *QuizService) CreateQuestion(quizID, hostID uint, text string, orderNum 
 	return &question, nil
 }
 
-func (s *QuizService) UpdateQuestion(questionID, hostID uint, text string, orderNum int, categoryID *uint, options []OptionInput) (*models.Question, error) {
+func (s *QuizService) UpdateQuestion(questionID, hostID uint, input QuestionInput) (*models.Question, error) {
 	var question models.Question
 	if err := s.db.Preload("Options").First(&question, questionID).Error; err != nil {
 		return nil, errors.New("question not found")
@@ -249,15 +273,27 @@ func (s *QuizService) UpdateQuestion(questionID, hostID uint, text string, order
 		return nil, errors.New("quiz not found or access denied")
 	}
 
-	if err := validateOptions(options); err != nil {
+	qType := input.Type
+	if qType == "" {
+		qType = models.QuestionTypeSingleChoice
+	}
+
+	if quiz.Mode == "bot" && (qType == models.QuestionTypeOrdering || qType == models.QuestionTypeMatching) {
+		return nil, errors.New("ordering and matching questions are not available in bot mode")
+	}
+
+	if err := validateQuestionByType(qType, input.Options, input.CorrectNumber); err != nil {
 		return nil, err
 	}
 
 	tx := s.db.Begin()
 
-	question.Text = text
-	question.OrderNum = orderNum
-	question.CategoryID = categoryID
+	question.Text = input.Text
+	question.OrderNum = input.OrderNum
+	question.CategoryID = input.CategoryID
+	question.Type = qType
+	question.CorrectNumber = input.CorrectNumber
+	question.Tolerance = input.Tolerance
 	if err := tx.Save(&question).Error; err != nil {
 		tx.Rollback()
 		return nil, err
@@ -268,12 +304,14 @@ func (s *QuizService) UpdateQuestion(questionID, hostID uint, text string, order
 		return nil, err
 	}
 
-	for _, o := range options {
+	for _, o := range input.Options {
 		opt := models.Option{
-			QuestionID: questionID,
-			Text:       o.Text,
-			IsCorrect:  o.IsCorrect,
-			Color:      o.Color,
+			QuestionID:      questionID,
+			Text:            o.Text,
+			IsCorrect:       o.IsCorrect,
+			Color:           o.Color,
+			CorrectPosition: o.CorrectPosition,
+			MatchText:       o.MatchText,
 		}
 		if err := tx.Create(&opt).Error; err != nil {
 			tx.Rollback()
@@ -302,7 +340,7 @@ func (s *QuizService) DeleteQuestion(questionID, hostID uint) error {
 	return s.db.Select("Options").Delete(&question).Error
 }
 
-func (s *QuizService) AddQuestionImage(questionID, hostID uint, url string) (*models.QuestionImage, error) {
+func (s *QuizService) AddQuestionImage(questionID, hostID uint, url, mediaType string) (*models.QuestionImage, error) {
 	var question models.Question
 	if err := s.db.First(&question, questionID).Error; err != nil {
 		return nil, errors.New("question not found")
@@ -316,9 +354,14 @@ func (s *QuizService) AddQuestionImage(questionID, hostID uint, url string) (*mo
 	var maxOrder int
 	s.db.Model(&models.QuestionImage{}).Where("question_id = ?", questionID).Select("COALESCE(MAX(order_num), -1)").Scan(&maxOrder)
 
+	if mediaType == "" {
+		mediaType = "image"
+	}
+
 	img := models.QuestionImage{
 		QuestionID: questionID,
 		URL:        url,
+		Type:       mediaType,
 		OrderNum:   maxOrder + 1,
 	}
 	if err := s.db.Create(&img).Error; err != nil {
@@ -357,8 +400,11 @@ type ImportCategory struct {
 }
 
 type ImportQuestion struct {
-	Text    string
-	Options []OptionInput
+	Text          string
+	Type          string
+	CorrectNumber *float64
+	Tolerance     *float64
+	Options       []OptionInput
 }
 
 func (s *QuizService) ImportQuestions(quizID, hostID uint, input ImportInput) (int, error) {
@@ -385,16 +431,20 @@ func (s *QuizService) ImportQuestions(quizID, hostID uint, input ImportInput) (i
 		}
 
 		for qIdx, q := range cat.Questions {
-			if len(q.Options) < 2 {
+			qType := q.Type
+			if qType == "" {
+				qType = models.QuestionTypeSingleChoice
+			}
+			if qType != models.QuestionTypeNumeric && len(q.Options) < 2 {
 				continue
 			}
-			dbQ := models.Question{QuizID: quizID, CategoryID: &dbCat.ID, Text: q.Text, OrderNum: qIdx}
+			dbQ := models.Question{QuizID: quizID, CategoryID: &dbCat.ID, Text: q.Text, OrderNum: qIdx, Type: qType, CorrectNumber: q.CorrectNumber, Tolerance: q.Tolerance}
 			if err := tx.Create(&dbQ).Error; err != nil {
 				tx.Rollback()
 				return 0, err
 			}
 			for _, o := range q.Options {
-				opt := models.Option{QuestionID: dbQ.ID, Text: o.Text, IsCorrect: o.IsCorrect, Color: o.Color}
+				opt := models.Option{QuestionID: dbQ.ID, Text: o.Text, IsCorrect: o.IsCorrect, Color: o.Color, CorrectPosition: o.CorrectPosition, MatchText: o.MatchText}
 				if err := tx.Create(&opt).Error; err != nil {
 					tx.Rollback()
 					return 0, err
@@ -405,17 +455,21 @@ func (s *QuizService) ImportQuestions(quizID, hostID uint, input ImportInput) (i
 	}
 
 	for _, q := range input.Questions {
-		if len(q.Options) < 2 {
+		qType := q.Type
+		if qType == "" {
+			qType = models.QuestionTypeSingleChoice
+		}
+		if qType != models.QuestionTypeNumeric && len(q.Options) < 2 {
 			continue
 		}
 		maxQOrder++
-		dbQ := models.Question{QuizID: quizID, Text: q.Text, OrderNum: maxQOrder}
+		dbQ := models.Question{QuizID: quizID, Text: q.Text, OrderNum: maxQOrder, Type: qType, CorrectNumber: q.CorrectNumber, Tolerance: q.Tolerance}
 		if err := tx.Create(&dbQ).Error; err != nil {
 			tx.Rollback()
 			return 0, err
 		}
 		for _, o := range q.Options {
-			opt := models.Option{QuestionID: dbQ.ID, Text: o.Text, IsCorrect: o.IsCorrect, Color: o.Color}
+			opt := models.Option{QuestionID: dbQ.ID, Text: o.Text, IsCorrect: o.IsCorrect, Color: o.Color, CorrectPosition: o.CorrectPosition, MatchText: o.MatchText}
 			if err := tx.Create(&opt).Error; err != nil {
 				tx.Rollback()
 				return 0, err
@@ -429,9 +483,11 @@ func (s *QuizService) ImportQuestions(quizID, hostID uint, input ImportInput) (i
 }
 
 type OptionInput struct {
-	Text      string `json:"text"`
-	IsCorrect bool   `json:"is_correct"`
-	Color     string `json:"color"`
+	Text            string `json:"text"`
+	IsCorrect       bool   `json:"is_correct"`
+	Color           string `json:"color"`
+	CorrectPosition *int   `json:"correct_position,omitempty"`
+	MatchText       string `json:"match_text,omitempty"`
 }
 
 type ReorderInput struct {
@@ -450,20 +506,75 @@ type QuestionOrder struct {
 	OrderNum int  `json:"order_num"`
 }
 
-func validateOptions(options []OptionInput) error {
-	if len(options) < 2 || len(options) > 4 {
-		return errors.New("question must have 2 to 4 options")
-	}
-
-	correctCount := 0
-	for _, o := range options {
-		if o.IsCorrect {
-			correctCount++
+func validateQuestionByType(qType string, options []OptionInput, correctNumber *float64) error {
+	switch qType {
+	case models.QuestionTypeSingleChoice, "":
+		if len(options) < 2 || len(options) > 6 {
+			return errors.New("single choice must have 2 to 6 options")
 		}
-	}
-	if correctCount != 1 {
-		return errors.New("exactly one option must be marked as correct")
-	}
+		correctCount := 0
+		for _, o := range options {
+			if o.IsCorrect {
+				correctCount++
+			}
+		}
+		if correctCount != 1 {
+			return errors.New("exactly one option must be marked as correct")
+		}
 
+	case models.QuestionTypeMultipleChoice:
+		if len(options) < 2 || len(options) > 6 {
+			return errors.New("multiple choice must have 2 to 6 options")
+		}
+		correctCount := 0
+		for _, o := range options {
+			if o.IsCorrect {
+				correctCount++
+			}
+		}
+		if correctCount < 1 {
+			return errors.New("at least one option must be correct")
+		}
+		if correctCount == len(options) {
+			return errors.New("at least one option must be incorrect")
+		}
+
+	case models.QuestionTypeOrdering:
+		if len(options) < 2 || len(options) > 8 {
+			return errors.New("ordering must have 2 to 8 items")
+		}
+		positions := make(map[int]bool)
+		for _, o := range options {
+			if o.CorrectPosition == nil {
+				return errors.New("each ordering item must have a correct_position")
+			}
+			p := *o.CorrectPosition
+			if p < 1 || p > len(options) {
+				return errors.New("correct_position must be between 1 and the number of items")
+			}
+			if positions[p] {
+				return errors.New("correct_position values must be unique")
+			}
+			positions[p] = true
+		}
+
+	case models.QuestionTypeMatching:
+		if len(options) < 2 || len(options) > 8 {
+			return errors.New("matching must have 2 to 8 pairs")
+		}
+		for _, o := range options {
+			if o.MatchText == "" {
+				return errors.New("each matching item must have a match_text")
+			}
+		}
+
+	case models.QuestionTypeNumeric:
+		if correctNumber == nil {
+			return errors.New("numeric question must have a correct_number")
+		}
+
+	default:
+		return errors.New("unknown question type: " + qType)
+	}
 	return nil
 }

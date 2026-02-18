@@ -9,6 +9,7 @@ const (
 	StateInSession     = "in_session"
 	StateHostPassword  = "host_password"
 	StateHostRemote    = "host_remote"
+	StateEnterNumeric  = "enter_numeric"
 )
 
 type QuestionOption struct {
@@ -18,22 +19,24 @@ type QuestionOption struct {
 
 type QuestionData struct {
 	Text      string           `json:"text"`
+	Type      string           `json:"type"`
 	SessionID uint             `json:"session_id"`
 	Options   []QuestionOption `json:"options"`
 }
 
 type UserState struct {
-	State            string
-	Code             string
-	Nickname         string
-	SessionID        uint
-	RoomID           uint
-	QuestionData     *QuestionData
-	CurrentQNum      int
-	TotalQuestions   int
-	SelectedOptionID uint
-	HostAuthPassword string
-	LastBotMsgID     int64
+	State             string
+	Code              string
+	Nickname          string
+	SessionID         uint
+	RoomID            uint
+	QuestionData      *QuestionData
+	CurrentQNum       int
+	TotalQuestions    int
+	SelectedOptionID  uint
+	SelectedOptionIDs []uint
+	HostAuthPassword  string
+	LastBotMsgID      int64
 }
 
 type StateManager struct {

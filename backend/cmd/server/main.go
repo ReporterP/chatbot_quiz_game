@@ -172,6 +172,7 @@ func main() {
 			play.POST("/join", playHandler.Join)
 			play.GET("/reconnect", playHandler.Reconnect)
 			play.POST("/answer", playHandler.Answer)
+			play.POST("/answer-complex", playHandler.AnswerComplex)
 			play.GET("/state", playHandler.GetState)
 			play.PUT("/nickname", playHandler.UpdateNickname)
 			play.POST("/leave", playHandler.Leave)

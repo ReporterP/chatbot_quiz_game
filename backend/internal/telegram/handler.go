@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -127,6 +128,8 @@ func (h *UpdateHandler) handleMessage(msg *Message) {
 		h.onNickname(userID, chatID, text)
 	case StateInSession:
 		h.tryRecoverSession(userID, chatID, us)
+	case StateEnterNumeric:
+		h.onNumericAnswer(userID, chatID, text, us)
 	case StateHostPassword:
 		h.onHostPassword(userID, chatID, text)
 	case StateHostRemote:
@@ -621,6 +624,16 @@ func (h *UpdateHandler) handleCallback(cb *CallbackQuery) {
 		return
 	}
 
+	if strings.HasPrefix(cb.Data, "multi:") {
+		h.handleMultiChoiceToggle(cb)
+		return
+	}
+
+	if strings.HasPrefix(cb.Data, "multisubmit:") {
+		h.handleMultiChoiceSubmit(cb)
+		return
+	}
+
 	if !strings.HasPrefix(cb.Data, "ans:") {
 		h.client.AnswerCallbackQuery(cb.ID, "Неверные данные", true)
 		return
@@ -814,6 +827,130 @@ func (h *UpdateHandler) handleAnswerCallback(cb *CallbackQuery) {
 	h.state.UpdateField(userID, func(s *UserState) {
 		s.SelectedOptionID = uint(optionID)
 	})
+
+	if h.hub != nil {
+		h.hub.Broadcast(uint(sessionID), ws.WSMessage{
+			Type: "answer_received",
+			Data: gin.H{"session_id": sessionID},
+		})
+	}
+
+	h.client.AnswerCallbackQuery(cb.ID, "✅ Ответ принят!", false)
+}
+
+func (h *UpdateHandler) onNumericAnswer(userID, chatID int64, text string, us *UserState) {
+	val, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
+	if err != nil {
+		h.client.SendMessage(chatID, "⚠️ Введите корректное число.", "", nil)
+		return
+	}
+
+	if us.QuestionData == nil || us.QuestionData.SessionID == 0 {
+		h.client.SendMessage(chatID, "⚠️ Нет активного вопроса.", "", nil)
+		return
+	}
+
+	answerJSON, _ := json.Marshal(map[string]interface{}{
+		"value": val,
+	})
+
+	sessionID := us.QuestionData.SessionID
+	if err := h.sessionSvc.SubmitComplexAnswerByTelegram(uint(sessionID), userID, answerJSON); err != nil {
+		h.client.SendMessage(chatID, "⚠️ "+err.Error(), "", nil)
+		return
+	}
+
+	h.state.UpdateField(userID, func(s *UserState) {
+		s.State = StateInSession
+	})
+
+	h.sendAndTrack(chatID, userID, fmt.Sprintf("✅ <b>Ваш ответ: %s</b>\n\nОжидайте результат...", text), "HTML", nil)
+
+	if h.hub != nil {
+		h.hub.Broadcast(uint(sessionID), ws.WSMessage{
+			Type: "answer_received",
+			Data: gin.H{"session_id": sessionID},
+		})
+	}
+}
+
+func (h *UpdateHandler) handleMultiChoiceToggle(cb *CallbackQuery) {
+	userID := cb.From.ID
+	us := h.state.Get(userID)
+	if us.State != StateInSession {
+		h.client.AnswerCallbackQuery(cb.ID, "Вы не в активной сессии", true)
+		return
+	}
+
+	parts := strings.Split(cb.Data, ":")
+	if len(parts) != 3 {
+		h.client.AnswerCallbackQuery(cb.ID, "Неверные данные", true)
+		return
+	}
+	sessionID, _ := strconv.ParseUint(parts[1], 10, 64)
+	optionID, _ := strconv.ParseUint(parts[2], 10, 64)
+
+	selected := us.SelectedOptionIDs
+	found := false
+	for i, id := range selected {
+		if id == uint(optionID) {
+			selected = append(selected[:i], selected[i+1:]...)
+			found = true
+			break
+		}
+	}
+	if !found {
+		selected = append(selected, uint(optionID))
+	}
+
+	h.state.UpdateField(userID, func(s *UserState) {
+		s.SelectedOptionIDs = selected
+	})
+
+	if us.QuestionData != nil && cb.Message != nil {
+		kb := MultiChoiceKeyboard(uint(sessionID), us.QuestionData.Options, selected)
+		text := fmt.Sprintf("❓ <b>Вопрос %d из %d</b>\n\n%s\n\n<i>Выбрано: %d</i>",
+			us.CurrentQNum, us.TotalQuestions, us.QuestionData.Text, len(selected))
+		h.client.EditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, text, "HTML", kb)
+	}
+	h.client.AnswerCallbackQuery(cb.ID, "", false)
+}
+
+func (h *UpdateHandler) handleMultiChoiceSubmit(cb *CallbackQuery) {
+	userID := cb.From.ID
+	us := h.state.Get(userID)
+	if us.State != StateInSession {
+		h.client.AnswerCallbackQuery(cb.ID, "Вы не в активной сессии", true)
+		return
+	}
+
+	parts := strings.Split(cb.Data, ":")
+	if len(parts) != 3 {
+		h.client.AnswerCallbackQuery(cb.ID, "Неверные данные", true)
+		return
+	}
+	sessionID, _ := strconv.ParseUint(parts[1], 10, 64)
+
+	if len(us.SelectedOptionIDs) == 0 {
+		h.client.AnswerCallbackQuery(cb.ID, "Выберите хотя бы один ответ", true)
+		return
+	}
+
+	answerJSON, _ := json.Marshal(map[string]interface{}{
+		"option_ids": us.SelectedOptionIDs,
+	})
+
+	err := h.sessionSvc.SubmitComplexAnswerByTelegram(uint(sessionID), userID, answerJSON)
+	if err != nil {
+		h.client.AnswerCallbackQuery(cb.ID, "Ошибка: "+err.Error(), true)
+		return
+	}
+
+	if us.QuestionData != nil && cb.Message != nil {
+		text := fmt.Sprintf("❓ <b>Вопрос %d из %d</b>\n\n%s\n\n✅ <b>Ответ принят (выбрано: %d)</b>",
+			us.CurrentQNum, us.TotalQuestions, us.QuestionData.Text, len(us.SelectedOptionIDs))
+		h.client.EditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, text, "HTML", nil)
+	}
 
 	if h.hub != nil {
 		h.hub.Broadcast(uint(sessionID), ws.WSMessage{

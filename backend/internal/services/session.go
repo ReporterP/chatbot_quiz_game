@@ -1,8 +1,10 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 
@@ -145,15 +147,28 @@ func (s *SessionService) GetSession(sessionID uint) (*SessionState, error) {
 		qm := questions[session.CurrentQuestion-1]
 		q := qm.Question
 
+		qType := q.Type
+		if qType == "" {
+			qType = models.QuestionTypeSingleChoice
+		}
+
 		qr := QuestionResponse{
 			ID:           q.ID,
+			Type:         qType,
 			Text:         q.Text,
 			OrderNum:     q.OrderNum,
 			CategoryName: qm.CategoryName,
 		}
 
+		isRevealed := session.Status == models.SessionStatusRevealed || session.Status == models.SessionStatusFinished
+
+		if isRevealed && qType == models.QuestionTypeNumeric {
+			qr.CorrectNumber = q.CorrectNumber
+			qr.Tolerance = q.Tolerance
+		}
+
 		for _, img := range q.Images {
-			qr.Images = append(qr.Images, ImageResponse{ID: img.ID, URL: img.URL})
+			qr.Images = append(qr.Images, ImageResponse{ID: img.ID, URL: img.URL, Type: img.Type})
 		}
 
 		for _, o := range q.Options {
@@ -162,9 +177,15 @@ func (s *SessionService) GetSession(sessionID uint) (*SessionState, error) {
 				Text:  o.Text,
 				Color: o.Color,
 			}
-			if session.Status == models.SessionStatusRevealed || session.Status == models.SessionStatusFinished {
+			if qType == models.QuestionTypeMatching {
+				opt.MatchText = o.MatchText
+			}
+			if isRevealed {
 				correct := o.IsCorrect
 				opt.IsCorrect = &correct
+				if qType == models.QuestionTypeOrdering {
+					opt.CorrectPosition = o.CorrectPosition
+				}
 			}
 			qr.Options = append(qr.Options, opt)
 		}
@@ -256,7 +277,7 @@ func (s *SessionService) RevealAnswer(sessionID, hostID uint) (*SessionState, er
 	var totalParticipants int64
 	s.db.Model(&models.Participant{}).Where("session_id = ?", sessionID).Count(&totalParticipants)
 
-	answers = s.scoring.CalculateScores(answers, int(totalParticipants))
+	answers = s.scoring.CalculateScoresForType(answers, int(totalParticipants), &currentQ)
 
 	tx := s.db.Begin()
 	for _, a := range answers {
@@ -410,6 +431,205 @@ func (s *SessionService) SubmitAnswerByMember(sessionID, memberID, optionID uint
 	return s.db.Create(&answer).Error
 }
 
+type ComplexAnswerData struct {
+	OptionIDs []uint            `json:"option_ids,omitempty"`
+	Order     []uint            `json:"order,omitempty"`
+	Pairs     map[string]string `json:"pairs,omitempty"`
+	Value     *float64          `json:"value,omitempty"`
+}
+
+func (s *SessionService) SubmitComplexAnswerByMember(sessionID, memberID uint, answerData json.RawMessage) error {
+	var session models.Session
+	if err := s.db.First(&session, sessionID).Error; err != nil {
+		return errors.New("session not found")
+	}
+	if session.Status != models.SessionStatusQuestion {
+		return errors.New("session is not accepting answers")
+	}
+
+	var participant models.Participant
+	if err := s.db.Where("session_id = ? AND member_id = ?", sessionID, memberID).
+		First(&participant).Error; err != nil {
+		return errors.New("participant not found in session")
+	}
+
+	questions := s.getOrderedQuestions(session.QuizID)
+	if session.CurrentQuestion < 1 || session.CurrentQuestion > len(questions) {
+		return errors.New("invalid question state")
+	}
+	currentQ := questions[session.CurrentQuestion-1].Question
+	qType := currentQ.Type
+	if qType == "" {
+		qType = models.QuestionTypeSingleChoice
+	}
+
+	var data ComplexAnswerData
+	if err := json.Unmarshal(answerData, &data); err != nil {
+		return errors.New("invalid answer data")
+	}
+
+	isCorrect, err := s.evaluateAnswer(qType, &currentQ, &data)
+	if err != nil {
+		return err
+	}
+
+	raw := string(answerData)
+
+	var existingAnswer models.Answer
+	if err := s.db.Where("session_id = ? AND participant_id = ? AND question_id = ?",
+		sessionID, participant.ID, currentQ.ID).First(&existingAnswer).Error; err == nil {
+		existingAnswer.AnswerData = raw
+		existingAnswer.IsCorrect = isCorrect
+		existingAnswer.AnsweredAt = time.Now()
+		existingAnswer.OptionID = 0
+		return s.db.Save(&existingAnswer).Error
+	}
+
+	answer := models.Answer{
+		SessionID:     sessionID,
+		ParticipantID: participant.ID,
+		QuestionID:    currentQ.ID,
+		OptionID:      0,
+		IsCorrect:     isCorrect,
+		AnswerData:    raw,
+		Score:         0,
+		AnsweredAt:    time.Now(),
+	}
+	return s.db.Create(&answer).Error
+}
+
+func (s *SessionService) SubmitComplexAnswerByTelegram(sessionID uint, telegramID int64, answerData json.RawMessage) error {
+	var session models.Session
+	if err := s.db.First(&session, sessionID).Error; err != nil {
+		return errors.New("session not found")
+	}
+	if session.Status != models.SessionStatusQuestion {
+		return errors.New("session is not accepting answers")
+	}
+
+	var participant models.Participant
+	if err := s.db.Where("session_id = ? AND telegram_id = ?", sessionID, telegramID).
+		First(&participant).Error; err != nil {
+		return errors.New("participant not found in session")
+	}
+
+	questions := s.getOrderedQuestions(session.QuizID)
+	if session.CurrentQuestion < 1 || session.CurrentQuestion > len(questions) {
+		return errors.New("invalid question state")
+	}
+	currentQ := questions[session.CurrentQuestion-1].Question
+	qType := currentQ.Type
+	if qType == "" {
+		qType = models.QuestionTypeSingleChoice
+	}
+
+	var data ComplexAnswerData
+	if err := json.Unmarshal(answerData, &data); err != nil {
+		return errors.New("invalid answer data")
+	}
+
+	isCorrect, err := s.evaluateAnswer(qType, &currentQ, &data)
+	if err != nil {
+		return err
+	}
+
+	raw := string(answerData)
+
+	var existingAnswer models.Answer
+	if err := s.db.Where("session_id = ? AND participant_id = ? AND question_id = ?",
+		sessionID, participant.ID, currentQ.ID).First(&existingAnswer).Error; err == nil {
+		existingAnswer.AnswerData = raw
+		existingAnswer.IsCorrect = isCorrect
+		existingAnswer.AnsweredAt = time.Now()
+		existingAnswer.OptionID = 0
+		return s.db.Save(&existingAnswer).Error
+	}
+
+	answer := models.Answer{
+		SessionID:     sessionID,
+		ParticipantID: participant.ID,
+		QuestionID:    currentQ.ID,
+		OptionID:      0,
+		IsCorrect:     isCorrect,
+		AnswerData:    raw,
+		Score:         0,
+		AnsweredAt:    time.Now(),
+	}
+	return s.db.Create(&answer).Error
+}
+
+func (s *SessionService) evaluateAnswer(qType string, q *models.Question, data *ComplexAnswerData) (bool, error) {
+	switch qType {
+	case models.QuestionTypeMultipleChoice:
+		if len(data.OptionIDs) == 0 {
+			return false, errors.New("no options selected")
+		}
+		correctIDs := make(map[uint]bool)
+		for _, o := range q.Options {
+			if o.IsCorrect {
+				correctIDs[o.ID] = true
+			}
+		}
+		if len(data.OptionIDs) != len(correctIDs) {
+			return false, nil
+		}
+		for _, id := range data.OptionIDs {
+			if !correctIDs[id] {
+				return false, nil
+			}
+		}
+		return true, nil
+
+	case models.QuestionTypeOrdering:
+		if len(data.Order) != len(q.Options) {
+			return false, nil
+		}
+		posMap := make(map[uint]int)
+		for _, o := range q.Options {
+			if o.CorrectPosition != nil {
+				posMap[o.ID] = *o.CorrectPosition
+			}
+		}
+		for i, optID := range data.Order {
+			if posMap[optID] != i+1 {
+				return false, nil
+			}
+		}
+		return true, nil
+
+	case models.QuestionTypeMatching:
+		if len(data.Pairs) != len(q.Options) {
+			return false, nil
+		}
+		correctPairs := make(map[string]string)
+		for _, o := range q.Options {
+			correctPairs[fmt.Sprintf("%d", o.ID)] = o.MatchText
+		}
+		for leftID, rightText := range data.Pairs {
+			if correctPairs[leftID] != rightText {
+				return false, nil
+			}
+		}
+		return true, nil
+
+	case models.QuestionTypeNumeric:
+		if data.Value == nil {
+			return false, errors.New("no numeric value provided")
+		}
+		if q.CorrectNumber == nil {
+			return false, errors.New("question has no correct number")
+		}
+		tolerance := 0.0
+		if q.Tolerance != nil {
+			tolerance = *q.Tolerance
+		}
+		return math.Abs(*data.Value-*q.CorrectNumber) <= tolerance, nil
+
+	default:
+		return false, errors.New("use standard answer for single_choice")
+	}
+}
+
 func (s *SessionService) GetParticipantResultByMember(sessionID, memberID uint) (*ParticipantResult, error) {
 	var session models.Session
 	if err := s.db.First(&session, sessionID).Error; err != nil {
@@ -480,24 +700,30 @@ type SessionState struct {
 }
 
 type QuestionResponse struct {
-	ID           uint             `json:"id"`
-	Text         string           `json:"text"`
-	OrderNum     int              `json:"order_num"`
-	CategoryName string           `json:"category_name,omitempty"`
-	Options      []OptionResponse `json:"options"`
-	Images       []ImageResponse  `json:"images,omitempty"`
+	ID            uint             `json:"id"`
+	Type          string           `json:"type"`
+	Text          string           `json:"text"`
+	OrderNum      int              `json:"order_num"`
+	CategoryName  string           `json:"category_name,omitempty"`
+	CorrectNumber *float64         `json:"correct_number,omitempty"`
+	Tolerance     *float64         `json:"tolerance,omitempty"`
+	Options       []OptionResponse `json:"options"`
+	Images        []ImageResponse  `json:"images,omitempty"`
 }
 
 type OptionResponse struct {
-	ID        uint   `json:"id"`
-	Text      string `json:"text"`
-	Color     string `json:"color,omitempty"`
-	IsCorrect *bool  `json:"is_correct,omitempty"`
+	ID              uint   `json:"id"`
+	Text            string `json:"text"`
+	Color           string `json:"color,omitempty"`
+	IsCorrect       *bool  `json:"is_correct,omitempty"`
+	CorrectPosition *int   `json:"correct_position,omitempty"`
+	MatchText       string `json:"match_text,omitempty"`
 }
 
 type ImageResponse struct {
-	ID  uint   `json:"id"`
-	URL string `json:"url"`
+	ID   uint   `json:"id"`
+	URL  string `json:"url"`
+	Type string `json:"type,omitempty"`
 }
 
 type LeaderboardEntry struct {

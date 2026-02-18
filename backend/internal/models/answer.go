@@ -7,8 +7,9 @@ type Answer struct {
 	SessionID     uint      `gorm:"not null;uniqueIndex:idx_answer_unique" json:"session_id"`
 	ParticipantID uint      `gorm:"not null;uniqueIndex:idx_answer_unique" json:"participant_id"`
 	QuestionID    uint      `gorm:"not null;uniqueIndex:idx_answer_unique;index:idx_answer_order" json:"question_id"`
-	OptionID      uint      `gorm:"not null" json:"option_id"`
+	OptionID      uint      `gorm:"default:0" json:"option_id"`
 	IsCorrect     bool      `gorm:"not null" json:"is_correct"`
 	Score         int       `gorm:"not null;default:0" json:"score"`
+	AnswerData    string    `gorm:"type:text" json:"answer_data,omitempty"`
 	AnsweredAt    time.Time `gorm:"index:idx_answer_order" json:"answered_at"`
 }
