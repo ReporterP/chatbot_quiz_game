@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { playJoin, playReconnect, playAnswer, playGetState, playUpdateNickname, playLeave } from '../api/play';
 import useRoomWebSocket from '../hooks/useRoomWebSocket';
 import './PlayPage.css';
 
 const LS_KEY = 'quizgame_play';
+const LS_TOKEN_KEY = 'quizgame_device_token';
 
 function loadStorage() {
   try {
@@ -20,8 +21,13 @@ function clearStorage() {
   localStorage.removeItem(LS_KEY);
 }
 
-function generateToken() {
-  return 'xxxx-xxxx-xxxx'.replace(/x/g, () => Math.random().toString(36)[2]);
+function getDeviceToken() {
+  let t = localStorage.getItem(LS_TOKEN_KEY);
+  if (!t) {
+    t = 'xxxx-xxxx-xxxx-xxxx'.replace(/x/g, () => Math.random().toString(36)[2]);
+    localStorage.setItem(LS_TOKEN_KEY, t);
+  }
+  return t;
 }
 
 export default function PlayPage() {
@@ -31,7 +37,7 @@ export default function PlayPage() {
   const [phase, setPhase] = useState('join');
   const [code, setCode] = useState('');
   const [nickname, setNickname] = useState('');
-  const [token, setToken] = useState('');
+  const [token] = useState(() => getDeviceToken());
   const [room, setRoom] = useState(null);
   const [member, setMember] = useState(null);
   const [members, setMembers] = useState([]);
@@ -45,12 +51,15 @@ export default function PlayPage() {
   const [lightboxImg, setLightboxImg] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
 
+  const sessionRef = useRef(null);
+  const tokenRef = useRef(token);
+  const roomCodeRef = useRef(null);
+
   useEffect(() => {
     const stored = loadStorage();
-    if (stored.token && stored.roomCode) {
-      setToken(stored.token);
+    if (stored.roomCode) {
       setCode(stored.roomCode);
-      tryReconnect(stored.token, stored.roomCode);
+      tryReconnect(token, stored.roomCode);
     } else if (urlCode) {
       setCode(urlCode);
     }
@@ -59,20 +68,19 @@ export default function PlayPage() {
   const tryReconnect = async (t, c) => {
     try {
       const { data } = await playReconnect(t, c);
-      enterRoom(data, t);
+      enterRoom(data);
       if (data.leaderboard) setLeaderboard(data.leaderboard);
     } catch {
       clearStorage();
     }
   };
 
-  const enterRoom = (data, t) => {
+  const enterRoom = (data) => {
     setRoom(data.room);
     setMember(data.member);
     setMembers(data.members || data.room?.members || []);
-    setToken(t);
+    roomCodeRef.current = data.room.code;
     saveStorage({
-      token: t,
       roomCode: data.room.code,
       roomId: data.room.id,
       memberId: data.member.id,
@@ -80,6 +88,7 @@ export default function PlayPage() {
     });
     if (data.current_session) {
       setSession(data.current_session);
+      sessionRef.current = data.current_session;
       const status = data.current_session.status;
       if (status === 'waiting') setPhase('lobby');
       else if (status === 'question') { setPhase('question'); resetAnswer(); }
@@ -99,25 +108,27 @@ export default function PlayPage() {
   const handleJoin = async (e) => {
     e.preventDefault();
     setError('');
-    const t = token || generateToken();
     try {
-      const { data } = await playJoin(code, nickname, t);
-      enterRoom(data, t);
+      const { data } = await playJoin(code, nickname, token);
+      enterRoom(data);
     } catch (err) {
       setError(err.response?.data?.error || 'Ошибка подключения');
     }
   };
 
   const refreshState = useCallback(async () => {
-    if (!token || !room?.code) return;
+    const t = tokenRef.current;
+    const rc = roomCodeRef.current;
+    if (!t || !rc) return;
     try {
-      const { data } = await playGetState(token, room.code);
+      const { data } = await playGetState(t, rc);
       setRoom(data.room);
       setMember(data.member);
       setMembers(data.members || []);
       if (data.current_session) {
-        const prev = session;
+        const prev = sessionRef.current;
         setSession(data.current_session);
+        sessionRef.current = data.current_session;
         const status = data.current_session.status;
         const newQ = data.current_session.current_question;
 
@@ -139,6 +150,7 @@ export default function PlayPage() {
         }
       } else {
         setSession(null);
+        sessionRef.current = null;
         setPhase('lobby');
         resetAnswer();
         setLeaderboard([]);
@@ -147,7 +159,7 @@ export default function PlayPage() {
       clearStorage();
       setPhase('join');
     }
-  }, [token, room?.code, session]);
+  }, []);
 
   const onWsMessage = useCallback((msg) => {
     if (msg.type === 'room_closed') {
@@ -192,9 +204,10 @@ export default function PlayPage() {
     setRoom(null);
     setMember(null);
     setSession(null);
+    sessionRef.current = null;
+    roomCodeRef.current = null;
     setCode('');
     setNickname('');
-    setToken('');
     setLeaderboard([]);
     resetAnswer();
   };
