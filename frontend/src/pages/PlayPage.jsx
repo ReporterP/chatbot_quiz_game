@@ -43,6 +43,7 @@ export default function PlayPage() {
   const [editingNick, setEditingNick] = useState(false);
   const [newNick, setNewNick] = useState('');
   const [lightboxImg, setLightboxImg] = useState(null);
+  const [leaderboard, setLeaderboard] = useState([]);
   useEffect(() => {
     const stored = loadStorage();
     if (stored.token && stored.roomCode) {
@@ -56,6 +57,7 @@ export default function PlayPage() {
     try {
       const { data } = await playReconnect(t, c);
       enterRoom(data, t);
+      if (data.leaderboard) setLeaderboard(data.leaderboard);
     } catch {
       clearStorage();
     }
@@ -126,13 +128,17 @@ export default function PlayPage() {
           if (data.my_result) setMyResult(data.my_result);
         } else if (status === 'finished') {
           setPhase('finished');
+          if (data.leaderboard) setLeaderboard(data.leaderboard);
         } else if (status === 'waiting') {
           setPhase('lobby');
+          resetAnswer();
+          setLeaderboard([]);
         }
       } else {
         setSession(null);
         setPhase('lobby');
         resetAnswer();
+        setLeaderboard([]);
       }
     } catch {
       clearStorage();
@@ -153,7 +159,7 @@ export default function PlayPage() {
   useRoomWebSocket(room?.code, onWsMessage);
 
   const handleAnswer = async (optionId) => {
-    if (answered || !session || !member) return;
+    if (!session || !member) return;
     setSelectedOption(optionId);
     setAnswered(true);
     try {
@@ -256,10 +262,9 @@ export default function PlayPage() {
               return (
                 <button
                   key={opt.id}
-                  className={`play-option${isSelected ? ' selected' : ''}${answered && !isSelected ? ' dimmed' : ''}`}
+                  className={`play-option${isSelected ? ' selected' : ''}`}
                   style={{ background: opt.color || '#444' }}
                   onClick={() => handleAnswer(opt.id)}
-                  disabled={answered}
                 >
                   {opt.text}
                 </button>
@@ -283,8 +288,17 @@ export default function PlayPage() {
     return (
       <div className="play-page">
         <div className="play-container play-game">
+          {question.category_name && <div className="play-category">{question.category_name}</div>}
           <div className="play-counter">Вопрос {current} из {total}</div>
           <div className="play-question">{question.text}</div>
+
+          {question.images?.length > 0 && (
+            <div className="play-images">
+              {question.images.map((img) => (
+                <img key={img.id} src={img.url} alt="" className="play-thumb" onClick={() => setLightboxImg(img.url)} />
+              ))}
+            </div>
+          )}
 
           <div className="play-options">
             {question.options.map((opt) => {
@@ -302,15 +316,20 @@ export default function PlayPage() {
               {myResult.answered && <span className="play-result-score">+{myResult.score} очков (Всего: {myResult.total_score})</span>}
             </div>
           )}
+
+          {lightboxImg && (
+            <div className="lightbox" onClick={() => setLightboxImg(null)}>
+              <img src={lightboxImg} alt="" />
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
   if (phase === 'finished') {
-    const participants = session?.participants || [];
-    const sorted = [...participants].sort((a, b) => b.total_score - a.total_score);
-    const myPos = sorted.findIndex(p => p.member_id === member?.id) + 1;
+    const myEntry = leaderboard.find(e => e.member_id === member?.id);
+    const myPos = myEntry?.position || 0;
 
     return (
       <div className="play-page">
@@ -318,15 +337,17 @@ export default function PlayPage() {
           <h2 className="play-title">Квиз завершён!</h2>
           {myPos > 0 && (
             <div className="play-my-position">
-              Ваше место: <strong>{myPos}</strong> из {sorted.length}
+              Ваше место: <strong>{myPos}</strong> из {leaderboard.length}
             </div>
           )}
           <div className="play-leaderboard">
-            {sorted.slice(0, 10).map((p, i) => (
-              <div key={p.id} className={`play-lb-row${p.member_id === member?.id ? ' me' : ''}`}>
-                <span className="play-lb-pos">{i + 1}</span>
-                <span className="play-lb-name">{p.nickname}</span>
-                <span className="play-lb-score">{p.total_score}</span>
+            {leaderboard.map((e) => (
+              <div key={e.position} className={`play-lb-row${e.member_id === member?.id ? ' me' : ''}`}>
+                <span className="play-lb-pos">
+                  {e.position <= 3 ? ['🥇','🥈','🥉'][e.position - 1] : e.position}
+                </span>
+                <span className="play-lb-name">{e.nickname}</span>
+                <span className="play-lb-score">{e.total_score}</span>
               </div>
             ))}
           </div>

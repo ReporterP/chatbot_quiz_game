@@ -85,7 +85,7 @@ export default function DashboardPage() {
         <div className="dashboard-header">
           <h2>Мои квизы</h2>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-outline btn-sm" onClick={() => navigate('/history')}>История сессий</button>
+            <button className="btn btn-outline btn-sm" onClick={() => navigate('/history')}>История комнат</button>
             {aiAvailable && (
               <button className="btn btn-outline btn-sm ai-btn" onClick={() => setShowAiModal(true)}>
                 AI Генерация

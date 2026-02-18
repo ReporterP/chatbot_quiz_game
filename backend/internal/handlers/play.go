@@ -65,16 +65,30 @@ func (h *PlayHandler) Join(c *gin.Context) {
 		})
 	}
 
+	activeSession := currentSession
+	if activeSession == nil {
+		activeSession, _ = h.roomService.GetLatestSession(result.Room.ID)
+	}
+
 	var sessionState *services.SessionState
-	if currentSession != nil {
-		sessionState, _ = h.sessionService.GetSession(currentSession.ID)
+	if activeSession != nil {
+		sessionState, _ = h.sessionService.GetSession(activeSession.ID)
+	}
+
+	members, _ := h.roomService.ListMembers(result.Room.ID)
+
+	var leaderboard []services.LeaderboardEntry
+	if sessionState != nil && sessionState.Status == "finished" {
+		leaderboard, _ = h.sessionService.GetLeaderboard(activeSession.ID)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"room":            result.Room,
 		"member":          result.Member,
+		"members":         members,
 		"is_rejoin":       result.IsRejoin,
 		"current_session": sessionState,
+		"leaderboard":     leaderboard,
 	})
 }
 
@@ -93,16 +107,31 @@ func (h *PlayHandler) Reconnect(c *gin.Context) {
 	}
 
 	currentSession, _ := h.roomService.GetCurrentSession(result.Room.ID)
+	if currentSession == nil {
+		currentSession, _ = h.roomService.GetLatestSession(result.Room.ID)
+	}
 	var sessionState *services.SessionState
+	var myResult *services.ParticipantResult
 	if currentSession != nil {
 		sessionState, _ = h.sessionService.GetSession(currentSession.ID)
+		myResult, _ = h.sessionService.GetParticipantResultByMember(currentSession.ID, result.Member.ID)
+	}
+
+	members, _ := h.roomService.ListMembers(result.Room.ID)
+
+	var leaderboard []services.LeaderboardEntry
+	if sessionState != nil && sessionState.Status == "finished" {
+		leaderboard, _ = h.sessionService.GetLeaderboard(currentSession.ID)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"room":            result.Room,
 		"member":          result.Member,
+		"members":         members,
 		"is_rejoin":       true,
 		"current_session": sessionState,
+		"my_result":       myResult,
+		"leaderboard":     leaderboard,
 	})
 }
 
@@ -156,6 +185,9 @@ func (h *PlayHandler) GetState(c *gin.Context) {
 	}
 
 	currentSession, _ := h.roomService.GetCurrentSession(room.ID)
+	if currentSession == nil {
+		currentSession, _ = h.roomService.GetLatestSession(room.ID)
+	}
 	var sessionState *services.SessionState
 	var myResult *services.ParticipantResult
 	if currentSession != nil {
@@ -165,12 +197,18 @@ func (h *PlayHandler) GetState(c *gin.Context) {
 
 	members, _ := h.roomService.ListMembers(room.ID)
 
+	var leaderboard []services.LeaderboardEntry
+	if sessionState != nil && sessionState.Status == "finished" {
+		leaderboard, _ = h.sessionService.GetLeaderboard(currentSession.ID)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"room":            room,
 		"member":          member,
 		"members":         members,
 		"current_session": sessionState,
 		"my_result":       myResult,
+		"leaderboard":     leaderboard,
 	})
 }
 

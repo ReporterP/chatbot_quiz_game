@@ -157,6 +157,7 @@ func main() {
 		{
 			rooms.POST("", roomHandler.CreateRoom)
 			rooms.GET("", roomHandler.ListActiveRooms)
+			rooms.GET("/history", roomHandler.ListRoomHistory)
 			rooms.GET("/:id", roomHandler.GetRoom)
 			rooms.POST("/:id/close", roomHandler.CloseRoom)
 			rooms.POST("/:id/start", roomHandler.StartQuizInRoom)

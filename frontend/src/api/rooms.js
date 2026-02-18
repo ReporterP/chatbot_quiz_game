@@ -26,3 +26,6 @@ export const roomFinish = (roomId) =>
 
 export const roomLeaderboard = (roomId) =>
   api.get(`/rooms/${roomId}/leaderboard`);
+
+export const listRoomHistory = () =>
+  api.get('/rooms/history');

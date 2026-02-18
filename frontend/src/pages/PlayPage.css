@@ -222,7 +222,9 @@
 }
 .play-option.selected {
   border-color: white;
-  box-shadow: 0 0 15px rgba(255,255,255,0.3);
+  box-shadow: 0 0 20px rgba(255,255,255,0.5);
+  transform: scale(1.04);
+  filter: brightness(1.2);
 }
 .play-option.dimmed {
   opacity: 0.5;
@@ -230,13 +232,18 @@
 .play-option.revealed.correct {
   background: #27ae60 !important;
   border-color: #2ecc71;
+  opacity: 1;
 }
 .play-option.revealed.wrong {
-  background: rgba(255,255,255,0.1) !important;
-  opacity: 0.5;
+  background: #c0392b !important;
+  border-color: #e74c3c;
+  opacity: 0.6;
 }
 .play-option.revealed.mine {
   border-color: white;
+  border-width: 4px;
+  box-shadow: 0 0 20px rgba(255,255,255,0.5);
+  opacity: 1;
 }
 
 .play-answered-msg {

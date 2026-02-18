@@ -17,6 +17,7 @@ export default function RoomPage() {
   const [room, setRoom] = useState(null);
   const [session, setSession] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
+  const [pastSessions, setPastSessions] = useState([]);
   const [quizzes, setQuizzes] = useState([]);
   const [selectedQuizId, setSelectedQuizId] = useState(initialQuizId || '');
   const [botLink, setBotLink] = useState('');
@@ -28,6 +29,7 @@ export default function RoomPage() {
       const { data } = await fetchRoom(id);
       setRoom(data.room);
       setSession(data.current_session);
+      setPastSessions(data.past_sessions || []);
       if (data.current_session?.status === 'finished') {
         const { data: lb } = await roomLeaderboard(id);
         setLeaderboard(lb);
@@ -104,10 +106,19 @@ export default function RoomPage() {
     navigate('/dashboard');
   };
 
-  const handleNextQuiz = () => {
+  const handleNextQuiz = async () => {
     setSession(null);
     setLeaderboard([]);
     setSelectedQuizId('');
+    try {
+      const { data } = await fetchRoom(id);
+      setRoom(data.room);
+      setPastSessions(data.past_sessions || []);
+      const cs = data.current_session;
+      if (cs && cs.status !== 'finished') {
+        setSession(cs);
+      }
+    } catch { /* ignore */ }
   };
 
   if (loading) {
@@ -138,10 +149,10 @@ export default function RoomPage() {
         <button className="btn-close-room" onClick={handleCloseRoom}>Закрыть комнату</button>
       </div>
       <div className="room-body">
-        {!session && <RoomLobby room={room} members={members} qrUrl={qrUrl} playUrl={playUrl} isWeb={isWeb} quizzes={quizzes} selectedQuizId={selectedQuizId} onSelectQuiz={setSelectedQuizId} onStart={handleStartQuiz} />}
+        {!session && <RoomLobby room={room} members={members} qrUrl={qrUrl} playUrl={playUrl} isWeb={isWeb} quizzes={quizzes} selectedQuizId={selectedQuizId} onSelectQuiz={setSelectedQuizId} onStart={handleStartQuiz} pastSessions={pastSessions} />}
 
         {status === 'waiting' && (
-          <WaitingScreen session={session} members={members} participants={participants} qrUrl={qrUrl} playUrl={playUrl} isWeb={isWeb} onStart={handleNext} />
+          <WaitingScreen room={room} members={members} participants={participants} qrUrl={qrUrl} playUrl={playUrl} isWeb={isWeb} onStart={handleNext} />
         )}
 
         {(status === 'question' || status === 'revealed') && question && (
@@ -156,7 +167,7 @@ export default function RoomPage() {
   );
 }
 
-function RoomLobby({ room, members, qrUrl, playUrl, isWeb, quizzes, selectedQuizId, onSelectQuiz, onStart }) {
+function RoomLobby({ room, members, qrUrl, playUrl, isWeb, quizzes, selectedQuizId, onSelectQuiz, onStart, pastSessions }) {
   return (
     <div className="lobby">
       <h2>Лобби комнаты</h2>
@@ -185,17 +196,30 @@ function RoomLobby({ room, members, qrUrl, playUrl, isWeb, quizzes, selectedQuiz
         </select>
         <button className="btn-game btn-next" onClick={onStart} disabled={!selectedQuizId || members.length === 0}>Начать квиз</button>
       </div>
+
+      {pastSessions && pastSessions.length > 0 && (
+        <div className="room-past-sessions">
+          <h3>Пройденные квизы</h3>
+          {pastSessions.filter(s => s.status === 'finished').map((s) => (
+            <div key={s.id} className="room-past-item">
+              <span className="room-past-quiz">{s.quiz_title}</span>
+              <span className="room-past-count">{s.participant_count} уч.</span>
+              <span className="room-past-date">{new Date(s.created_at).toLocaleString('ru')}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function WaitingScreen({ session, members, participants, qrUrl, playUrl, isWeb, onStart }) {
+function WaitingScreen({ room, members, participants, qrUrl, playUrl, isWeb, onStart }) {
   return (
     <div className="lobby">
       <h2>Ожидание начала</h2>
       <div className="lobby-code-block">
-        <div className="lobby-code-label">Код</div>
-        <div className="lobby-code">{session.code}</div>
+        <div className="lobby-code-label">Код комнаты</div>
+        <div className="lobby-code">{room.code}</div>
       </div>
       {qrUrl && <div className="lobby-qr"><QRCodeSVG value={qrUrl} size={140} /></div>}
       <div className="lobby-participants">

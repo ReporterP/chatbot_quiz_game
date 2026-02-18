@@ -1,134 +1,150 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
-import { listSessions, forceFinishSession, fetchLeaderboard } from '../api/sessions';
+import { listRoomHistory, closeRoom } from '../api/rooms';
+import { fetchLeaderboard } from '../api/sessions';
 import './SessionHistoryPage.css';
 
 export default function SessionHistoryPage() {
   const navigate = useNavigate();
-  const [sessions, setSessions] = useState([]);
+  const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState(null);
+  const [expandedSession, setExpandedSession] = useState(null);
   const [leaderboards, setLeaderboards] = useState({});
   const [page, setPage] = useState(0);
   const perPage = 6;
 
   const load = async () => {
     try {
-      const { data } = await listSessions();
-      setSessions(data || []);
+      const { data } = await listRoomHistory();
+      setRooms(data || []);
     } catch { /* ignore */ }
     setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
 
-  const handleForceFinish = async (e, id) => {
+  const handleCloseRoom = async (e, roomId) => {
     e.stopPropagation();
-    if (!confirm('Досрочно завершить сессию?')) return;
+    if (!confirm('Закрыть комнату?')) return;
     try {
-      await forceFinishSession(id);
+      await closeRoom(roomId);
       load();
     } catch (err) {
       alert(err.response?.data?.error || 'Ошибка');
     }
   };
 
-  const toggleLeaderboard = async (e, id) => {
+  const toggleLeaderboard = async (e, sessionId) => {
     e.stopPropagation();
-    if (expandedId === id) {
-      setExpandedId(null);
+    if (expandedSession === sessionId) {
+      setExpandedSession(null);
       return;
     }
-    if (!leaderboards[id]) {
+    if (!leaderboards[sessionId]) {
       try {
-        const { data } = await fetchLeaderboard(id);
-        setLeaderboards((prev) => ({ ...prev, [id]: data }));
+        const { data } = await fetchLeaderboard(sessionId);
+        setLeaderboards((prev) => ({ ...prev, [sessionId]: data }));
       } catch { /* ignore */ }
     }
-    setExpandedId(id);
+    setExpandedSession(sessionId);
   };
 
   const statusLabel = (s) => {
-    const map = { waiting: 'Ожидание', question: 'Вопрос', revealed: 'Ответ', finished: 'Завершён' };
+    const map = { active: 'Активна', closed: 'Закрыта', waiting: 'Ожидание', question: 'Вопрос', revealed: 'Ответ', finished: 'Завершён' };
     return map[s] || s;
   };
-
-  const isActive = (status) => status !== 'finished';
 
   return (
     <>
       <Header />
       <div className="dashboard">
         <div className="dashboard-header">
-          <h2>История сессий</h2>
+          <h2>История комнат</h2>
           <button className="btn btn-outline btn-sm" onClick={() => navigate('/dashboard')}>← К квизам</button>
         </div>
 
         {loading ? (
           <div className="loading">Загрузка...</div>
-        ) : sessions.length === 0 ? (
+        ) : rooms.length === 0 ? (
           <div className="empty-state">
-            <h3>Нет сессий</h3>
-            <p>Запустите квиз, чтобы здесь появилась история</p>
+            <h3>Нет комнат</h3>
+            <p>Создайте комнату, чтобы здесь появилась история</p>
           </div>
         ) : (() => {
-          const totalPages = Math.ceil(sessions.length / perPage);
-          const paged = sessions.slice(page * perPage, (page + 1) * perPage);
+          const totalPages = Math.ceil(rooms.length / perPage);
+          const paged = rooms.slice(page * perPage, (page + 1) * perPage);
           return (
             <>
               <div className="history-list">
-                {paged.map((s) => (
-                  <div key={s.id} className="history-card-full">
-                    <div className="history-card-row" onClick={() => navigate(`/session/${s.id}`)}>
+                {paged.map((r) => (
+                  <div key={r.id} className="history-card-full">
+                    <div className="history-card-row">
                       <div className="history-card-left">
-                        <div className="history-title">{s.quiz_title}</div>
+                        <div className="history-title">
+                          Комната {r.code}
+                          <span className="history-mode-badge">{r.mode === 'web' ? 'Веб' : 'Бот'}</span>
+                        </div>
                         <div className="history-meta">
-                          <span className={`status-badge status-${s.status}`}>{statusLabel(s.status)}</span>
-                          <span>{s.participant_count} участн.</span>
-                          <span>{new Date(s.created_at).toLocaleString('ru')}</span>
-                          <span className="history-code">Код: {s.code}</span>
+                          <span className={`status-badge status-${r.status}`}>{statusLabel(r.status)}</span>
+                          <span>{r.member_count} участн.</span>
+                          <span>{new Date(r.created_at).toLocaleString('ru')}</span>
                         </div>
                       </div>
                       <div className="history-card-actions">
-                        {s.status === 'finished' && (
-                          <button className="btn btn-outline btn-sm" onClick={(e) => toggleLeaderboard(e, s.id)}>
-                            {expandedId === s.id ? 'Скрыть' : 'Результаты'}
-                          </button>
-                        )}
-                        {isActive(s.status) && (
+                        {r.status === 'active' && (
                           <>
-                            <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); navigate(`/session/${s.id}`); }}>
+                            <button className="btn btn-primary btn-sm" onClick={() => navigate(`/room/${r.id}`)}>
                               Открыть
                             </button>
-                            <button className="btn btn-danger btn-sm" onClick={(e) => handleForceFinish(e, s.id)}>
-                              Завершить
+                            <button className="btn btn-danger btn-sm" onClick={(e) => handleCloseRoom(e, r.id)}>
+                              Закрыть
                             </button>
                           </>
                         )}
                       </div>
                     </div>
 
-                    {expandedId === s.id && leaderboards[s.id] && (
-                      <div className="history-leaderboard">
-                        {leaderboards[s.id].length === 0 ? (
-                          <p className="no-data">Нет участников</p>
-                        ) : (
-                          <table className="lb-table">
-                            <thead>
-                              <tr><th>#</th><th>Участник</th><th>Очки</th></tr>
-                            </thead>
-                            <tbody>
-                              {leaderboards[s.id].map((e) => (
-                                <tr key={e.position} className={e.position <= 3 ? `top-${e.position}` : ''}>
-                                  <td>{e.position <= 3 ? ['🥇','🥈','🥉'][e.position - 1] : e.position}</td>
-                                  <td>{e.nickname}</td>
-                                  <td>{e.total_score}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
+                    {r.sessions && r.sessions.length > 0 && (
+                      <div className="room-sessions-list">
+                        {r.sessions.map((sess) => (
+                          <div key={sess.id} className="room-session-item">
+                            <div className="room-session-row">
+                              <span className="room-session-quiz">{sess.quiz_title}</span>
+                              <span className={`status-badge status-${sess.status}`}>{statusLabel(sess.status)}</span>
+                              <span className="room-session-count">{sess.participant_count} уч.</span>
+                              <span className="room-session-date">{new Date(sess.created_at).toLocaleString('ru')}</span>
+                              {sess.status === 'finished' && (
+                                <button className="btn btn-outline btn-sm" onClick={(e) => toggleLeaderboard(e, sess.id)}>
+                                  {expandedSession === sess.id ? 'Скрыть' : 'Результаты'}
+                                </button>
+                              )}
+                            </div>
+
+                            {expandedSession === sess.id && leaderboards[sess.id] && (
+                              <div className="history-leaderboard">
+                                {leaderboards[sess.id].length === 0 ? (
+                                  <p className="no-data">Нет участников</p>
+                                ) : (
+                                  <table className="lb-table">
+                                    <thead>
+                                      <tr><th>#</th><th>Участник</th><th>Очки</th></tr>
+                                    </thead>
+                                    <tbody>
+                                      {leaderboards[sess.id].map((entry) => (
+                                        <tr key={entry.position} className={entry.position <= 3 ? `top-${entry.position}` : ''}>
+                                          <td>{entry.position <= 3 ? ['🥇','🥈','🥉'][entry.position - 1] : entry.position}</td>
+                                          <td>{entry.nickname}</td>
+                                          <td>{entry.total_score}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>

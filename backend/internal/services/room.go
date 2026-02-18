@@ -210,8 +210,106 @@ func (s *RoomService) generateUniqueCode() string {
 	}
 }
 
+func (s *RoomService) GetRoomSessions(roomID uint) ([]RoomSessionEntry, error) {
+	var sessions []models.Session
+	if err := s.db.Where("room_id = ?", roomID).
+		Order("created_at DESC").
+		Find(&sessions).Error; err != nil {
+		return nil, err
+	}
+	var result []RoomSessionEntry
+	for _, sess := range sessions {
+		var pCount int64
+		s.db.Model(&models.Participant{}).Where("session_id = ?", sess.ID).Count(&pCount)
+		var quiz models.Quiz
+		s.db.First(&quiz, sess.QuizID)
+		result = append(result, RoomSessionEntry{
+			ID:               sess.ID,
+			QuizTitle:        quiz.Title,
+			Status:           sess.Status,
+			ParticipantCount: int(pCount),
+			CreatedAt:        sess.CreatedAt,
+		})
+	}
+	return result, nil
+}
+
+func (s *RoomService) GetLatestSession(roomID uint) (*models.Session, error) {
+	var session models.Session
+	if err := s.db.Where("room_id = ?", roomID).
+		Order("created_at DESC").
+		First(&session).Error; err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (s *RoomService) ListAllRooms(hostID uint) ([]RoomHistoryEntry, error) {
+	var rooms []models.Room
+	if err := s.db.Where("host_id = ?", hostID).
+		Order("created_at DESC").
+		Find(&rooms).Error; err != nil {
+		return nil, err
+	}
+
+	var result []RoomHistoryEntry
+	for _, r := range rooms {
+		var sessions []models.Session
+		s.db.Where("room_id = ?", r.ID).Order("created_at ASC").Find(&sessions)
+
+		var sessionEntries []RoomSessionEntry
+		for _, sess := range sessions {
+			var pCount int64
+			s.db.Model(&models.Participant{}).Where("session_id = ?", sess.ID).Count(&pCount)
+
+			var quiz models.Quiz
+			s.db.First(&quiz, sess.QuizID)
+
+			sessionEntries = append(sessionEntries, RoomSessionEntry{
+				ID:               sess.ID,
+				QuizTitle:        quiz.Title,
+				Status:           sess.Status,
+				ParticipantCount: int(pCount),
+				CreatedAt:        sess.CreatedAt,
+			})
+		}
+
+		var memberCount int64
+		s.db.Model(&models.RoomMember{}).Where("room_id = ?", r.ID).Count(&memberCount)
+
+		result = append(result, RoomHistoryEntry{
+			ID:          r.ID,
+			Code:        r.Code,
+			Mode:        r.Mode,
+			Status:      r.Status,
+			MemberCount: int(memberCount),
+			Sessions:    sessionEntries,
+			CreatedAt:   r.CreatedAt,
+		})
+	}
+	return result, nil
+}
+
 type RoomJoinResult struct {
 	Room     models.Room       `json:"room"`
 	Member   models.RoomMember `json:"member"`
 	IsRejoin bool              `json:"is_rejoin"`
+}
+
+type RoomHistoryEntry struct {
+	ID          uint               `json:"id"`
+	Code        string             `json:"code"`
+	Mode        string             `json:"mode"`
+	Status      string             `json:"status"`
+	MemberCount int                `json:"member_count"`
+	Sessions    []RoomSessionEntry `json:"sessions"`
+	CreatedAt   time.Time          `json:"created_at"`
+}
+
+type RoomSessionEntry struct {
+	ID               uint      `json:"id"`
+	QuizTitle        string    `json:"quiz_title"`
+	Status           string    `json:"status"`
+	ParticipantCount int       `json:"participant_count"`
+	CreatedAt        time.Time `json:"created_at"`
 }

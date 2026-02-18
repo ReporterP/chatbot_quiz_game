@@ -60,9 +60,19 @@ func (h *RoomHandler) GetRoom(c *gin.Context) {
 		sessionState, _ = h.sessionService.GetSession(currentSession.ID)
 	}
 
+	if sessionState == nil {
+		latestSession, _ := h.roomService.GetLatestSession(room.ID)
+		if latestSession != nil {
+			sessionState, _ = h.sessionService.GetSession(latestSession.ID)
+		}
+	}
+
+	pastSessions, _ := h.roomService.GetRoomSessions(room.ID)
+
 	c.JSON(http.StatusOK, gin.H{
 		"room":            room,
 		"current_session": sessionState,
+		"past_sessions":   pastSessions,
 	})
 }
 
@@ -197,17 +207,27 @@ func (h *RoomHandler) SessionFinish(c *gin.Context) {
 func (h *RoomHandler) GetRoomLeaderboard(c *gin.Context) {
 	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 
-	currentSession, _ := h.roomService.GetCurrentSession(uint(roomID))
-	if currentSession == nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "no active session"})
+	session, err := h.roomService.GetLatestSession(uint(roomID))
+	if err != nil || session == nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "no session found"})
 		return
 	}
 
-	entries, err := h.sessionService.GetLeaderboard(currentSession.ID)
+	entries, err := h.sessionService.GetLeaderboard(session.ID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, entries)
+}
+
+func (h *RoomHandler) ListRoomHistory(c *gin.Context) {
+	hostID := c.GetUint("host_id")
+	rooms, err := h.roomService.ListAllRooms(hostID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rooms)
 }

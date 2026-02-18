@@ -148,6 +148,64 @@
   text-align: center;
 }
 
+.status-active { background: rgba(33,150,243,0.15); color: #2196f3; }
+.status-closed { background: rgba(158,158,158,0.15); color: #9e9e9e; }
+
+.history-mode-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(161,140,209,0.15);
+  color: #a18cd1;
+  vertical-align: middle;
+}
+
+.room-sessions-list {
+  border-top: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.room-session-item {
+  background: var(--background);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.room-session-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.room-session-quiz {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-session-count {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.room-session-date {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 @media (max-width: 768px) {
   .history-card-row {
     flex-direction: column;
@@ -174,5 +232,12 @@
   }
   .pagination {
     gap: 10px;
+  }
+  .room-sessions-list {
+    padding: 10px 14px;
+  }
+  .room-session-row {
+    gap: 8px;
+    padding: 8px 10px;
   }
 }
