@@ -18,6 +18,15 @@ jobs:
           port: ${{ secrets.VPS_PORT || 22 }}
           command_timeout: 20m
           script: |
+            # Ensure swap exists for low-RAM builds
+            if [ ! -f /swapfile ]; then
+              fallocate -l 2G /swapfile
+              chmod 600 /swapfile
+              mkswap /swapfile
+              swapon /swapfile
+              echo '/swapfile none swap sw 0 0' >> /etc/fstab
+            fi
+            swapon /swapfile 2>/dev/null || true
             cd /opt/chatbot_quiz_game
             git pull origin main
             docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
