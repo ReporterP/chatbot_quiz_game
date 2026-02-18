@@ -7,6 +7,8 @@ const (
 	StateEnterCode     = "enter_code"
 	StateEnterNickname = "enter_nickname"
 	StateInSession     = "in_session"
+	StateHostPassword  = "host_password"
+	StateHostRemote    = "host_remote"
 )
 
 type QuestionOption struct {

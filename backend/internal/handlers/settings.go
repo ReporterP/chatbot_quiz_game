@@ -22,12 +22,14 @@ func NewSettingsHandler(db *gorm.DB) *SettingsHandler {
 }
 
 type SettingsResponse struct {
-	BotToken string `json:"bot_token"`
-	BotLink  string `json:"bot_link"`
+	BotToken       string `json:"bot_token"`
+	BotLink        string `json:"bot_link"`
+	RemotePassword string `json:"remote_password"`
 }
 
 type UpdateSettingsRequest struct {
-	BotToken string `json:"bot_token" example:"123456:ABC-DEF"`
+	BotToken       string `json:"bot_token" example:"123456:ABC-DEF"`
+	RemotePassword string `json:"remote_password"`
 }
 
 func resolveBotUsername(token string) (string, error) {
@@ -72,8 +74,9 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, SettingsResponse{
-		BotToken: host.BotToken,
-		BotLink:  host.BotLink,
+		BotToken:       host.BotToken,
+		BotLink:        host.BotLink,
+		RemotePassword: host.RemotePassword,
 	})
 }
 
@@ -108,17 +111,21 @@ func (h *SettingsHandler) UpdateSettings(c *gin.Context) {
 		botLink = fmt.Sprintf("https://t.me/%s", username)
 	}
 
+	remotePass := strings.TrimSpace(req.RemotePassword)
+
 	if err := h.db.Model(&models.Host{}).Where("id = ?", hostID).Updates(map[string]interface{}{
-		"bot_token": token,
-		"bot_link":  botLink,
+		"bot_token":       token,
+		"bot_link":        botLink,
+		"remote_password": remotePass,
 	}).Error; err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, SettingsResponse{
-		BotToken: token,
-		BotLink:  botLink,
+		BotToken:       token,
+		BotLink:        botLink,
+		RemotePassword: remotePass,
 	})
 }
 

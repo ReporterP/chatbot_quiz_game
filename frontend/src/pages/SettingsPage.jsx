@@ -8,6 +8,7 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const [botToken, setBotToken] = useState('');
   const [botLink, setBotLink] = useState('');
+  const [remotePassword, setRemotePassword] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -17,6 +18,7 @@ export default function SettingsPage() {
       .then(({ data }) => {
         setBotToken(data.bot_token || '');
         setBotLink(data.bot_link || '');
+        setRemotePassword(data.remote_password || '');
       })
       .finally(() => setLoading(false));
   }, []);
@@ -26,8 +28,9 @@ export default function SettingsPage() {
     setSaving(true);
     setMessage('');
     try {
-      const { data } = await updateSettings({ bot_token: botToken });
+      const { data } = await updateSettings({ bot_token: botToken, remote_password: remotePassword });
       setBotLink(data.bot_link || '');
+      setRemotePassword(data.remote_password || '');
       setMessage('Настройки сохранены');
       setTimeout(() => setMessage(''), 3000);
     } catch (err) {
@@ -71,6 +74,24 @@ export default function SettingsPage() {
                 Ссылка на бота: <a href={botLink} target="_blank" rel="noreferrer">{botLink}</a>
               </div>
             )}
+          </div>
+
+          <div className="settings-section">
+            <h3>Пульт ведущего</h3>
+            <p className="settings-hint">
+              Задайте пароль, чтобы управлять квизом прямо из Telegram-бота. В боте нажмите «🎯 Пульт ведущего» и введите этот пароль.
+            </p>
+
+            <label className="settings-label">
+              Пароль для пульта
+              <input
+                type="text"
+                className="settings-input"
+                value={remotePassword}
+                onChange={(e) => setRemotePassword(e.target.value)}
+                placeholder="Придумайте пароль"
+              />
+            </label>
           </div>
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>

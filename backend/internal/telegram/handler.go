@@ -6,10 +6,12 @@ import (
 	"strconv"
 	"strings"
 
+	"quiz-game-backend/internal/models"
 	"quiz-game-backend/internal/services"
 	"quiz-game-backend/internal/ws"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type UpdateHandler struct {
@@ -19,6 +21,7 @@ type UpdateHandler struct {
 	sessionSvc *services.SessionService
 	tgUserSvc  *services.TelegramUserService
 	hub        *ws.Hub
+	db         *gorm.DB
 	hostID     uint
 }
 
@@ -29,6 +32,7 @@ func NewUpdateHandler(
 	sessionSvc *services.SessionService,
 	tgUserSvc *services.TelegramUserService,
 	hub *ws.Hub,
+	db *gorm.DB,
 	hostID uint,
 ) *UpdateHandler {
 	return &UpdateHandler{
@@ -38,6 +42,7 @@ func NewUpdateHandler(
 		sessionSvc: sessionSvc,
 		tgUserSvc:  tgUserSvc,
 		hub:        hub,
+		db:         db,
 		hostID:     hostID,
 	}
 }
@@ -89,6 +94,9 @@ func (h *UpdateHandler) handleMessage(msg *Message) {
 	case "🔄 Переподключиться":
 		h.cmdRejoin(userID, chatID)
 		return
+	case "🎯 Пульт ведущего":
+		h.startHostAuth(userID, chatID)
+		return
 	}
 
 	us := h.state.Get(userID)
@@ -98,12 +106,17 @@ func (h *UpdateHandler) handleMessage(msg *Message) {
 	case StateEnterNickname:
 		h.onNickname(userID, chatID, text)
 	case StateInSession:
-		// User is in a session but sent a text message — try to recover
 		h.tryRecoverSession(userID, chatID, us)
+	case StateHostPassword:
+		h.onHostPassword(userID, chatID, text)
+	case StateHostRemote:
+		h.client.SendMessage(chatID, "🎯 Вы в режиме пульта. Используйте кнопки в сообщении выше.\n\nДля выхода нажмите /start", "HTML", nil)
 	default:
 		h.client.SendMessage(chatID, "Используйте /start или кнопки меню.", "", MainMenuKeyboard())
 	}
 }
+
+// ─── /start ───
 
 func (h *UpdateHandler) cmdStart(msg *Message, userID, chatID int64, text string) {
 	firstName := "Player"
@@ -113,13 +126,12 @@ func (h *UpdateHandler) cmdStart(msg *Message, userID, chatID int64, text string
 
 	args := extractStartArgs(text)
 
-	// Check if user is currently in an active session
 	us := h.state.Get(userID)
 	if us.State == StateInSession && us.SessionID > 0 && args == "" {
 		sessState, err := h.sessionSvc.GetSession(us.SessionID)
 		if err == nil && sessState.Status != "finished" {
 			h.client.SendMessage(chatID,
-				fmt.Sprintf("🎮 Вы сейчас в активной сессии.\n\nНажмите <b>🔄 Переподключиться</b> чтобы вернуться в игру, или введите новый код."),
+				"🎮 Вы сейчас в активной сессии.\n\nНажмите <b>🔄 Переподключиться</b> чтобы вернуться в игру, или введите новый код.",
 				"HTML", SessionMenuKeyboard())
 			return
 		}
@@ -156,6 +168,8 @@ func (h *UpdateHandler) cmdStart(msg *Message, userID, chatID int64, text string
 			"👋 Добро пожаловать в Quiz Game!\n\nВведите ваш никнейм:", "", nil)
 	}
 }
+
+// ─── Participant join flow ───
 
 func (h *UpdateHandler) onCode(userID, chatID int64, code, firstName string) {
 	if len(code) != 6 || !isDigits(code) {
@@ -229,7 +243,6 @@ func (h *UpdateHandler) doJoin(userID, chatID int64, code, nickname string) {
 
 	h.tracker.AddParticipant(result.SessionID, userID, chatID, msgID)
 
-	// If session is already in progress, immediately sync state
 	sessState, err := h.sessionSvc.GetSession(result.SessionID)
 	if err == nil && sessState.Status != "waiting" {
 		go h.tracker.SyncParticipant(result.SessionID, userID)
@@ -243,8 +256,6 @@ func (h *UpdateHandler) doJoin(userID, chatID int64, code, nickname string) {
 	}
 }
 
-// tryRecoverSession handles the case where a user in StateInSession sends a text message.
-// This usually means they lost sync. We re-add them to the tracker and resync.
 func (h *UpdateHandler) tryRecoverSession(userID, chatID int64, us *UserState) {
 	if us.SessionID == 0 {
 		h.state.Clear(userID)
@@ -259,7 +270,6 @@ func (h *UpdateHandler) tryRecoverSession(userID, chatID int64, us *UserState) {
 		return
 	}
 
-	// Re-add to tracker and sync
 	msgID, _ := h.client.SendMessage(chatID,
 		"🔄 Переподключение к квизу...", "HTML", nil)
 
@@ -267,7 +277,6 @@ func (h *UpdateHandler) tryRecoverSession(userID, chatID int64, us *UserState) {
 	go h.tracker.SyncParticipant(us.SessionID, userID)
 }
 
-// cmdRejoin handles explicit rejoin request
 func (h *UpdateHandler) cmdRejoin(userID, chatID int64) {
 	us := h.state.Get(userID)
 	if us.State != StateInSession || us.SessionID == 0 {
@@ -288,6 +297,8 @@ func (h *UpdateHandler) cmdRejoin(userID, chatID int64) {
 	h.tracker.AddParticipant(us.SessionID, userID, chatID, msgID)
 	go h.tracker.SyncParticipant(us.SessionID, userID)
 }
+
+// ─── Profile / History / Nickname ───
 
 func (h *UpdateHandler) cmdProfile(userID, chatID int64) {
 	user, _, err := h.tgUserSvc.GetOrCreate(userID, h.hostID, "Player")
@@ -349,12 +360,211 @@ func (h *UpdateHandler) cmdNickname(userID, chatID int64, text string) {
 		"HTML", MainMenuKeyboard())
 }
 
+// ─── Host Remote Control ───
+
+func (h *UpdateHandler) startHostAuth(userID, chatID int64) {
+	var host models.Host
+	if err := h.db.First(&host, h.hostID).Error; err != nil || host.RemotePassword == "" {
+		h.client.SendMessage(chatID,
+			"❌ Пульт ведущего не настроен.\n\nВладелец бота должен задать пароль для пульта в настройках на сайте.",
+			"HTML", MainMenuKeyboard())
+		return
+	}
+
+	h.state.Set(userID, &UserState{State: StateHostPassword})
+	h.client.SendMessage(chatID, "🔐 Введите пароль пульта ведущего:", "", nil)
+}
+
+func (h *UpdateHandler) onHostPassword(userID, chatID int64, password string) {
+	var host models.Host
+	if err := h.db.First(&host, h.hostID).Error; err != nil {
+		h.client.SendMessage(chatID, "Ошибка. Попробуйте /start", "", MainMenuKeyboard())
+		h.state.Clear(userID)
+		return
+	}
+
+	if strings.TrimSpace(password) != host.RemotePassword {
+		h.client.SendMessage(chatID, "❌ Неверный пароль. Попробуйте ещё раз:", "", nil)
+		return
+	}
+
+	h.state.Set(userID, &UserState{State: StateHostRemote})
+
+	sessions, err := h.sessionSvc.GetActiveSessions(h.hostID)
+	if err != nil || len(sessions) == 0 {
+		h.client.SendMessage(chatID,
+			"🎯 <b>Пульт ведущего</b>\n\n📋 Нет активных сессий.\nСоздайте сессию на сайте, затем нажмите /start → 🎯 Пульт ведущего",
+			"HTML", MainMenuKeyboard())
+		h.state.Clear(userID)
+		return
+	}
+
+	var items []SessionPickItem
+	statusLabels := map[string]string{
+		"waiting":  "⏳ ожидание",
+		"question": "❓ вопрос",
+		"revealed": "👁 ответ показан",
+	}
+	for _, s := range sessions {
+		sl := statusLabels[s.Status]
+		if sl == "" {
+			sl = s.Status
+		}
+		items = append(items, SessionPickItem{
+			SessionID: s.ID,
+			Label:     fmt.Sprintf("%s [%s] %s 👥%d", s.QuizTitle, s.Code, sl, s.ParticipantCount),
+		})
+	}
+
+	h.client.SendMessage(chatID,
+		"🎯 <b>Пульт ведущего</b>\n\n✅ Авторизация успешна!\nВыберите сессию:",
+		"HTML", HostSessionPickKeyboard(items))
+}
+
+func (h *UpdateHandler) handleHostPick(cb *CallbackQuery, sessionID uint) {
+	userID := cb.From.ID
+	chatID := cb.Message.Chat.ID
+
+	sessState, err := h.sessionSvc.GetSession(sessionID)
+	if err != nil {
+		h.client.AnswerCallbackQuery(cb.ID, "Сессия не найдена", true)
+		return
+	}
+
+	if sessState.HostID != h.hostID {
+		h.client.AnswerCallbackQuery(cb.ID, "Нет доступа к этой сессии", true)
+		return
+	}
+
+	h.state.UpdateField(userID, func(s *UserState) {
+		s.State = StateHostRemote
+		s.SessionID = sessionID
+	})
+
+	text := h.tracker.buildHostControlText(sessState)
+	kb := HostControlKeyboard(sessionID, sessState.Status, sessState.CurrentQuestion, sessState.TotalQuestions)
+
+	msgID, _ := h.client.SendMessage(chatID, text, "HTML", kb)
+
+	h.tracker.SetHostRemote(sessionID, chatID, msgID)
+
+	h.client.AnswerCallbackQuery(cb.ID, "", false)
+}
+
+func (h *UpdateHandler) handleHostAction(cb *CallbackQuery, action string, sessionID uint) {
+	chatID := cb.Message.Chat.ID
+
+	switch action {
+	case "reveal":
+		state, err := h.sessionSvc.RevealAnswer(sessionID, h.hostID)
+		if err != nil {
+			h.client.AnswerCallbackQuery(cb.ID, "Ошибка: "+err.Error(), true)
+			return
+		}
+		if h.hub != nil {
+			h.hub.Broadcast(sessionID, ws.WSMessage{Type: "revealed", Data: state})
+		}
+		h.client.AnswerCallbackQuery(cb.ID, "👁 Ответ показан", false)
+
+	case "next":
+		state, err := h.sessionSvc.NextQuestion(sessionID, h.hostID)
+		if err != nil {
+			h.client.AnswerCallbackQuery(cb.ID, "Ошибка: "+err.Error(), true)
+			return
+		}
+		msgType := "question"
+		if state.Status == "finished" {
+			msgType = "finished"
+		}
+		if h.hub != nil {
+			h.hub.Broadcast(sessionID, ws.WSMessage{Type: msgType, Data: state})
+		}
+		h.client.AnswerCallbackQuery(cb.ID, "➡️ Далее", false)
+
+	case "finish":
+		state, err := h.sessionSvc.ForceFinish(sessionID, h.hostID)
+		if err != nil {
+			h.client.AnswerCallbackQuery(cb.ID, "Ошибка: "+err.Error(), true)
+			return
+		}
+		if h.hub != nil {
+			h.hub.Broadcast(sessionID, ws.WSMessage{Type: "finished", Data: state})
+		}
+		h.client.AnswerCallbackQuery(cb.ID, "🏆 Квиз завершён", false)
+
+	case "refresh":
+		h.client.AnswerCallbackQuery(cb.ID, "🔄 Обновлено", false)
+	}
+
+	// Update the host control panel immediately
+	sessState, err := h.sessionSvc.GetSession(sessionID)
+	if err != nil {
+		return
+	}
+
+	text := h.tracker.buildHostControlText(sessState)
+	kb := HostControlKeyboard(sessionID, sessState.Status, sessState.CurrentQuestion, sessState.TotalQuestions)
+
+	if cb.Message != nil && cb.Message.MessageID > 0 {
+		if err := h.client.EditMessageText(chatID, cb.Message.MessageID, text, "HTML", kb); err != nil {
+			msgID, _ := h.client.SendMessage(chatID, text, "HTML", kb)
+			if msgID > 0 {
+				h.tracker.SetHostRemote(sessionID, chatID, msgID)
+			}
+		}
+	}
+
+	if sessState.Status == "finished" {
+		h.state.Clear(cb.From.ID)
+	}
+}
+
+// ─── Callback router ───
+
 func (h *UpdateHandler) handleCallback(cb *CallbackQuery) {
+	if strings.HasPrefix(cb.Data, "host:") {
+		h.routeHostCallback(cb)
+		return
+	}
+
 	if !strings.HasPrefix(cb.Data, "ans:") {
 		h.client.AnswerCallbackQuery(cb.ID, "Неверные данные", true)
 		return
 	}
 
+	h.handleAnswerCallback(cb)
+}
+
+func (h *UpdateHandler) routeHostCallback(cb *CallbackQuery) {
+	// format: host:<action>:<sessionID>
+	parts := strings.Split(cb.Data, ":")
+	if len(parts) != 3 {
+		h.client.AnswerCallbackQuery(cb.ID, "Неверные данные", true)
+		return
+	}
+
+	action := parts[1]
+	sessionID, _ := strconv.ParseUint(parts[2], 10, 64)
+	if sessionID == 0 {
+		h.client.AnswerCallbackQuery(cb.ID, "Неверные данные", true)
+		return
+	}
+
+	us := h.state.Get(cb.From.ID)
+	if us.State != StateHostRemote {
+		h.client.AnswerCallbackQuery(cb.ID, "Авторизуйтесь заново: /start → 🎯 Пульт ведущего", true)
+		return
+	}
+
+	if action == "pick" {
+		h.handleHostPick(cb, uint(sessionID))
+		return
+	}
+
+	h.handleHostAction(cb, action, uint(sessionID))
+}
+
+func (h *UpdateHandler) handleAnswerCallback(cb *CallbackQuery) {
 	userID := cb.From.ID
 	us := h.state.Get(userID)
 	if us.State != StateInSession {
@@ -377,7 +587,6 @@ func (h *UpdateHandler) handleCallback(cb *CallbackQuery) {
 		if strings.Contains(errText, "not accepting") {
 			h.client.AnswerCallbackQuery(cb.ID, "Время для ответа вышло", true)
 		} else if strings.Contains(errText, "participant not found") {
-			// Participant lost — try to rejoin silently
 			h.client.AnswerCallbackQuery(cb.ID, "Переподключение...", false)
 			if us.Code != "" && us.Nickname != "" {
 				go h.doJoin(userID, cb.Message.Chat.ID, us.Code, us.Nickname)
@@ -411,6 +620,8 @@ func (h *UpdateHandler) handleCallback(cb *CallbackQuery) {
 
 	h.client.AnswerCallbackQuery(cb.ID, "✅ Ответ принят!", false)
 }
+
+// ─── Helpers ───
 
 func isCommand(msg *Message, cmd string) bool {
 	if msg.Entities == nil {

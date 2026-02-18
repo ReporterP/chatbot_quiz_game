@@ -271,6 +271,32 @@ func (s *SessionService) GetLeaderboard(sessionID uint) ([]LeaderboardEntry, err
 	return entries, nil
 }
 
+func (s *SessionService) GetActiveSessions(hostID uint) ([]SessionSummary, error) {
+	var sessions []models.Session
+	if err := s.db.Where("host_id = ? AND status != ?", hostID, models.SessionStatusFinished).
+		Preload("Quiz").
+		Order("created_at DESC").
+		Find(&sessions).Error; err != nil {
+		return nil, err
+	}
+
+	result := make([]SessionSummary, 0, len(sessions))
+	for _, sess := range sessions {
+		var participantCount int64
+		s.db.Model(&models.Participant{}).Where("session_id = ?", sess.ID).Count(&participantCount)
+
+		result = append(result, SessionSummary{
+			ID:               sess.ID,
+			QuizTitle:        sess.Quiz.Title,
+			Code:             sess.Code,
+			Status:           sess.Status,
+			ParticipantCount: int(participantCount),
+			CreatedAt:        sess.CreatedAt,
+		})
+	}
+	return result, nil
+}
+
 func (s *SessionService) ListSessions(hostID uint) ([]SessionSummary, error) {
 	var sessions []models.Session
 	if err := s.db.Where("host_id = ?", hostID).
