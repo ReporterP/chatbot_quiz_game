@@ -27,10 +27,13 @@ type UserState struct {
 	Code             string
 	Nickname         string
 	SessionID        uint
+	RoomID           uint
 	QuestionData     *QuestionData
 	CurrentQNum      int
 	TotalQuestions   int
 	SelectedOptionID uint
+	HostAuthPassword string
+	LastBotMsgID     int64
 }
 
 type StateManager struct {
@@ -58,13 +61,23 @@ func (m *StateManager) Get(userID int64) *UserState {
 func (m *StateManager) Set(userID int64, state *UserState) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if old, ok := m.users[userID]; ok {
+		state.HostAuthPassword = old.HostAuthPassword
+		state.LastBotMsgID = old.LastBotMsgID
+	}
 	m.users[userID] = state
 }
 
 func (m *StateManager) Clear(userID int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.users, userID)
+	if old, ok := m.users[userID]; ok {
+		m.users[userID] = &UserState{
+			HostAuthPassword: old.HostAuthPassword,
+		}
+	} else {
+		delete(m.users, userID)
+	}
 }
 
 func (m *StateManager) UpdateField(userID int64, fn func(s *UserState)) {

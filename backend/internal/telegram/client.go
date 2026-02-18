@@ -113,6 +113,15 @@ func (c *Client) SetWebhook(url, secretToken string) error {
 	return err
 }
 
+func (c *Client) DeleteMessage(chatID, messageID int64) error {
+	req := struct {
+		ChatID    int64 `json:"chat_id"`
+		MessageID int64 `json:"message_id"`
+	}{ChatID: chatID, MessageID: messageID}
+	_, err := c.call("deleteMessage", req)
+	return err
+}
+
 func (c *Client) DeleteWebhook() error {
 	_, err := c.call("deleteWebhook", struct{}{})
 	return err

@@ -299,7 +299,10 @@ export default function PlayPage() {
             })}
           </div>
 
-          {answered && <div className="play-answered-msg">Ответ принят! Ожидайте...</div>}
+          {answered && <div className="play-answered-msg">✅ Ответ принят!</div>}
+          {session?.answer_count != null && (
+            <div className="play-answer-count">Ответили: {session.answer_count} из {session.participants?.length || members.length}</div>
+          )}
 
           {lightboxImg && (
             <div className="lightbox" onClick={() => setLightboxImg(null)}>

@@ -253,7 +253,13 @@
 .play-answered-msg {
   color: rgba(255,255,255,0.6);
   font-size: 16px;
-  animation: pulse 2s infinite;
+}
+
+.play-answer-count {
+  color: rgba(255,255,255,0.4);
+  font-size: 13px;
+  margin-top: 8px;
+  letter-spacing: 0.5px;
 }
 
 .play-result-box {

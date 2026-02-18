@@ -80,7 +80,7 @@ func main() {
 		pollSec = 2
 	}
 	botManager := telegram.NewBotManager(
-		db, sessionService, tgUserService, hub,
+		db, sessionService, roomService, quizService, tgUserService, hub,
 		cfg.WebhookBaseURL, cfg.BotAPIKey,
 		time.Duration(pollSec)*time.Second,
 		30*time.Second,

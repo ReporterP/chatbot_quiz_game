@@ -14,11 +14,15 @@ import (
 	"gorm.io/gorm"
 )
 
+const quizzesPerPage = 5
+
 type UpdateHandler struct {
 	client     *Client
 	state      *StateManager
 	tracker    *SessionTracker
 	sessionSvc *services.SessionService
+	roomSvc    *services.RoomService
+	quizSvc    *services.QuizService
 	tgUserSvc  *services.TelegramUserService
 	hub        *ws.Hub
 	db         *gorm.DB
@@ -30,6 +34,8 @@ func NewUpdateHandler(
 	state *StateManager,
 	tracker *SessionTracker,
 	sessionSvc *services.SessionService,
+	roomSvc *services.RoomService,
+	quizSvc *services.QuizService,
 	tgUserSvc *services.TelegramUserService,
 	hub *ws.Hub,
 	db *gorm.DB,
@@ -40,6 +46,8 @@ func NewUpdateHandler(
 		state:      state,
 		tracker:    tracker,
 		sessionSvc: sessionSvc,
+		roomSvc:    roomSvc,
+		quizSvc:    quizSvc,
 		tgUserSvc:  tgUserSvc,
 		hub:        hub,
 		db:         db,
@@ -55,6 +63,18 @@ func (h *UpdateHandler) Handle(upd Update) {
 	if upd.Message != nil {
 		h.handleMessage(upd.Message)
 	}
+}
+
+func (h *UpdateHandler) sendAndTrack(chatID int64, userID int64, text, parseMode string, kb interface{}) int64 {
+	us := h.state.Get(userID)
+	if us.LastBotMsgID > 0 {
+		h.client.DeleteMessage(chatID, us.LastBotMsgID)
+	}
+	msgID, _ := h.client.SendMessage(chatID, text, parseMode, kb)
+	h.state.UpdateField(userID, func(s *UserState) {
+		s.LastBotMsgID = msgID
+	})
+	return msgID
 }
 
 func (h *UpdateHandler) handleMessage(msg *Message) {
@@ -83,7 +103,7 @@ func (h *UpdateHandler) handleMessage(msg *Message) {
 	switch text {
 	case "🎮 Войти в квиз":
 		h.state.Set(userID, &UserState{State: StateEnterCode})
-		h.client.SendMessage(chatID, "Введите 6-значный код сессии:", "", nil)
+		h.client.SendMessage(chatID, "Введите 6-значный код комнаты:", "", nil)
 		return
 	case "👤 Мой профиль":
 		h.cmdProfile(userID, chatID)
@@ -152,7 +172,7 @@ func (h *UpdateHandler) cmdStart(msg *Message, userID, chatID int64, text string
 		} else {
 			h.state.Set(userID, &UserState{State: StateEnterNickname, Code: code})
 			h.client.SendMessage(chatID,
-				fmt.Sprintf("👋 Добро пожаловать в Quiz Game!\n\nКод сессии: <b>%s</b>\nВведите ваш никнейм:", code),
+				fmt.Sprintf("👋 Добро пожаловать в Quiz Game!\n\nКод комнаты: <b>%s</b>\nВведите ваш никнейм:", code),
 				"HTML", nil)
 		}
 		return
@@ -371,6 +391,13 @@ func (h *UpdateHandler) startHostAuth(userID, chatID int64) {
 		return
 	}
 
+	us := h.state.Get(userID)
+	if us.HostAuthPassword == host.RemotePassword {
+		h.state.Set(userID, &UserState{State: StateHostRemote})
+		h.showRoomList(userID, chatID)
+		return
+	}
+
 	h.state.Set(userID, &UserState{State: StateHostPassword})
 	h.client.SendMessage(chatID, "🔐 Введите пароль пульта ведущего:", "", nil)
 }
@@ -388,68 +415,116 @@ func (h *UpdateHandler) onHostPassword(userID, chatID int64, password string) {
 		return
 	}
 
-	h.state.Set(userID, &UserState{State: StateHostRemote})
+	h.state.UpdateField(userID, func(s *UserState) {
+		s.HostAuthPassword = host.RemotePassword
+	})
+	h.state.Set(userID, &UserState{State: StateHostRemote, HostAuthPassword: host.RemotePassword})
 
-	sessions, err := h.sessionSvc.GetActiveSessions(h.hostID)
-	if err != nil || len(sessions) == 0 {
-		h.client.SendMessage(chatID,
-			"🎯 <b>Пульт ведущего</b>\n\n📋 Нет активных сессий.\nСоздайте сессию на сайте, затем нажмите /start → 🎯 Пульт ведущего",
-			"HTML", MainMenuKeyboard())
-		h.state.Clear(userID)
+	h.showRoomList(userID, chatID)
+}
+
+func (h *UpdateHandler) showRoomList(userID, chatID int64) {
+	rooms, _ := h.roomSvc.GetActiveRooms(h.hostID)
+
+	if len(rooms) == 0 {
+		kb := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{
+			{{Text: "➕ Создать комнату", CallbackData: "host:newroom:0"}},
+		}}
+		h.sendAndTrack(chatID, userID,
+			"🎯 <b>Пульт ведущего</b>\n\n📋 Нет активных комнат.\n\nСоздайте комнату прямо здесь или на сайте.",
+			"HTML", kb)
 		return
 	}
 
-	var items []SessionPickItem
-	statusLabels := map[string]string{
-		"waiting":  "⏳ ожидание",
-		"question": "❓ вопрос",
-		"revealed": "👁 ответ показан",
-	}
-	for _, s := range sessions {
-		sl := statusLabels[s.Status]
-		if sl == "" {
-			sl = s.Status
-		}
-		items = append(items, SessionPickItem{
-			SessionID: s.ID,
-			Label:     fmt.Sprintf("%s [%s] %s 👥%d", s.QuizTitle, s.Code, sl, s.ParticipantCount),
+	var items []RoomPickItem
+	for _, r := range rooms {
+		memberCount := len(r.Members)
+		items = append(items, RoomPickItem{
+			RoomID: r.Room.ID,
+			Label:  fmt.Sprintf("🚪 %s [%s] 👥%d", r.Room.Code, r.Room.Mode, memberCount),
 		})
 	}
 
-	h.client.SendMessage(chatID,
-		"🎯 <b>Пульт ведущего</b>\n\n✅ Авторизация успешна!\nВыберите сессию:",
-		"HTML", HostSessionPickKeyboard(items))
+	h.sendAndTrack(chatID, userID,
+		"🎯 <b>Пульт ведущего</b>\n\n✅ Авторизация успешна!\nВыберите комнату:",
+		"HTML", HostRoomPickKeyboard(items))
 }
 
-func (h *UpdateHandler) handleHostPick(cb *CallbackQuery, sessionID uint) {
-	userID := cb.From.ID
-	chatID := cb.Message.Chat.ID
-
-	sessState, err := h.sessionSvc.GetSession(sessionID)
+func (h *UpdateHandler) showRoomControl(userID, chatID int64, roomID uint, editMsgID int64) {
+	rw, err := h.roomSvc.GetRoom(roomID)
 	if err != nil {
-		h.client.AnswerCallbackQuery(cb.ID, "Сессия не найдена", true)
 		return
 	}
+	members, _ := h.roomSvc.ListMembers(roomID)
+	currentSession, _ := h.roomSvc.GetCurrentSession(roomID)
 
-	if sessState.HostID != h.hostID {
-		h.client.AnswerCallbackQuery(cb.ID, "Нет доступа к этой сессии", true)
-		return
+	var sessLine string
+	hasSession := false
+	if currentSession != nil {
+		hasSession = true
+		sessState, _ := h.sessionSvc.GetSession(currentSession.ID)
+		if sessState != nil {
+			sessLine = fmt.Sprintf("\n\n🎮 Квиз: <b>%s</b>\nСтатус: <b>%s</b>", sessState.Quiz.Title, sessState.Status)
+		}
 	}
 
-	h.state.UpdateField(userID, func(s *UserState) {
-		s.State = StateHostRemote
-		s.SessionID = sessionID
-	})
+	text := fmt.Sprintf("🚪 <b>Комната %s</b>\n\n👥 Участников: <b>%d</b>\nРежим: <b>%s</b>%s",
+		rw.Room.Code, len(members), rw.Room.Mode, sessLine)
 
-	text := h.tracker.buildHostControlText(sessState)
-	kb := HostControlKeyboard(sessionID, sessState.Status, sessState.CurrentQuestion, sessState.TotalQuestions)
+	kb := HostRoomControlKeyboard(roomID, hasSession)
 
-	msgID, _ := h.client.SendMessage(chatID, text, "HTML", kb)
-
-	h.tracker.SetHostRemote(sessionID, chatID, msgID)
-
-	h.client.AnswerCallbackQuery(cb.ID, "", false)
+	if editMsgID > 0 {
+		if err := h.client.EditMessageText(chatID, editMsgID, text, "HTML", kb); err == nil {
+			return
+		}
+	}
+	h.sendAndTrack(chatID, userID, text, "HTML", kb)
 }
+
+func (h *UpdateHandler) showQuizPicker(userID, chatID int64, roomID uint, page int, editMsgID int64) {
+	quizzes, _ := h.quizSvc.GetQuizzesByHost(h.hostID)
+
+	totalPages := (len(quizzes) + quizzesPerPage - 1) / quizzesPerPage
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	if page >= totalPages {
+		page = totalPages - 1
+	}
+	if page < 0 {
+		page = 0
+	}
+
+	start := page * quizzesPerPage
+	end := start + quizzesPerPage
+	if end > len(quizzes) {
+		end = len(quizzes)
+	}
+
+	var items []QuizPickItem
+	for _, q := range quizzes[start:end] {
+		qCount := len(q.Questions)
+		for _, c := range q.Categories {
+			qCount += len(c.Questions)
+		}
+		items = append(items, QuizPickItem{
+			QuizID: q.ID,
+			Label:  fmt.Sprintf("📝 %s (%d вопр.)", q.Title, qCount),
+		})
+	}
+
+	text := fmt.Sprintf("📋 <b>Выберите квиз</b>\n\n%d квизов доступно", len(quizzes))
+	kb := HostQuizPickKeyboard(roomID, items, page, totalPages)
+
+	if editMsgID > 0 {
+		if err := h.client.EditMessageText(chatID, editMsgID, text, "HTML", kb); err == nil {
+			return
+		}
+	}
+	h.sendAndTrack(chatID, userID, text, "HTML", kb)
+}
+
+// ─── Host action on session via room ───
 
 func (h *UpdateHandler) handleHostAction(cb *CallbackQuery, action string, sessionID uint) {
 	chatID := cb.Message.Chat.ID
@@ -503,6 +578,13 @@ func (h *UpdateHandler) handleHostAction(cb *CallbackQuery, action string, sessi
 
 	case "refresh":
 		h.client.AnswerCallbackQuery(cb.ID, "🔄 Обновлено", false)
+
+	case "backroom":
+		h.client.AnswerCallbackQuery(cb.ID, "", false)
+		if roomID > 0 {
+			h.showRoomControl(cb.From.ID, chatID, roomID, cb.Message.MessageID)
+		}
+		return
 	}
 
 	sessState, err := h.sessionSvc.GetSession(sessionID)
@@ -523,7 +605,11 @@ func (h *UpdateHandler) handleHostAction(cb *CallbackQuery, action string, sessi
 	}
 
 	if sessState.Status == "finished" {
-		h.state.Clear(cb.From.ID)
+		if roomID > 0 {
+			h.showRoomControl(cb.From.ID, chatID, roomID, 0)
+		} else {
+			h.state.Clear(cb.From.ID)
+		}
 	}
 }
 
@@ -544,32 +630,142 @@ func (h *UpdateHandler) handleCallback(cb *CallbackQuery) {
 }
 
 func (h *UpdateHandler) routeHostCallback(cb *CallbackQuery) {
-	// format: host:<action>:<sessionID>
 	parts := strings.Split(cb.Data, ":")
-	if len(parts) != 3 {
+	if len(parts) < 3 {
 		h.client.AnswerCallbackQuery(cb.ID, "Неверные данные", true)
 		return
 	}
 
 	action := parts[1]
-	sessionID, _ := strconv.ParseUint(parts[2], 10, 64)
-	if sessionID == 0 {
-		h.client.AnswerCallbackQuery(cb.ID, "Неверные данные", true)
+	id, _ := strconv.ParseUint(parts[2], 10, 64)
+	chatID := cb.Message.Chat.ID
+	userID := cb.From.ID
+
+	us := h.state.Get(userID)
+	if us.State != StateHostRemote && action != "noop" {
+		h.client.AnswerCallbackQuery(cb.ID, "Авторизуйтесь: /start → 🎯 Пульт ведущего", true)
 		return
 	}
 
-	us := h.state.Get(cb.From.ID)
-	if us.State != StateHostRemote {
-		h.client.AnswerCallbackQuery(cb.ID, "Авторизуйтесь заново: /start → 🎯 Пульт ведущего", true)
+	switch action {
+	case "noop":
+		h.client.AnswerCallbackQuery(cb.ID, "", false)
+
+	case "rooms":
+		h.client.AnswerCallbackQuery(cb.ID, "", false)
+		h.showRoomList(userID, chatID)
+
+	case "newroom":
+		room, err := h.roomSvc.CreateRoom(h.hostID, "bot")
+		if err != nil {
+			h.client.AnswerCallbackQuery(cb.ID, "Ошибка: "+err.Error(), true)
+			return
+		}
+		h.client.AnswerCallbackQuery(cb.ID, "✅ Комната создана", false)
+		h.state.UpdateField(userID, func(s *UserState) { s.RoomID = room.ID })
+		h.showRoomControl(userID, chatID, room.ID, 0)
+
+	case "room":
+		h.client.AnswerCallbackQuery(cb.ID, "", false)
+		h.state.UpdateField(userID, func(s *UserState) { s.RoomID = uint(id) })
+		h.showRoomControl(userID, chatID, uint(id), cb.Message.MessageID)
+
+	case "roomrefresh":
+		h.client.AnswerCallbackQuery(cb.ID, "🔄 Обновлено", false)
+		h.showRoomControl(userID, chatID, uint(id), cb.Message.MessageID)
+
+	case "closeroom":
+		if err := h.roomSvc.CloseRoom(uint(id), h.hostID); err != nil {
+			h.client.AnswerCallbackQuery(cb.ID, "Ошибка: "+err.Error(), true)
+			return
+		}
+		if h.hub != nil {
+			h.hub.BroadcastToRoom(uint(id), ws.WSMessage{Type: "room_closed"})
+		}
+		h.client.AnswerCallbackQuery(cb.ID, "❌ Комната закрыта", false)
+		h.showRoomList(userID, chatID)
+
+	case "pickquiz":
+		page := 0
+		if len(parts) >= 4 {
+			p, _ := strconv.Atoi(parts[3])
+			page = p
+		}
+		h.client.AnswerCallbackQuery(cb.ID, "", false)
+		h.showQuizPicker(userID, chatID, uint(id), page, cb.Message.MessageID)
+
+	case "startquiz":
+		if len(parts) < 4 {
+			h.client.AnswerCallbackQuery(cb.ID, "Неверные данные", true)
+			return
+		}
+		quizID, _ := strconv.ParseUint(parts[3], 10, 64)
+		roomID := uint(id)
+
+		session, err := h.sessionSvc.CreateSessionInRoom(roomID, uint(quizID), h.hostID)
+		if err != nil {
+			h.client.AnswerCallbackQuery(cb.ID, "Ошибка: "+err.Error(), true)
+			return
+		}
+		state, _ := h.sessionSvc.GetSession(session.ID)
+		if h.hub != nil {
+			h.hub.BroadcastToRoom(roomID, ws.WSMessage{Type: "quiz_started", Data: state})
+		}
+
+		h.client.AnswerCallbackQuery(cb.ID, "▶️ Квиз запущен!", false)
+
+		text := h.tracker.buildHostControlText(state)
+		kb := HostControlKeyboard(session.ID, state.Status, state.CurrentQuestion, state.TotalQuestions)
+
+		if cb.Message != nil && cb.Message.MessageID > 0 {
+			h.client.EditMessageText(chatID, cb.Message.MessageID, text, "HTML", kb)
+		} else {
+			msgID, _ := h.client.SendMessage(chatID, text, "HTML", kb)
+			if msgID > 0 {
+				h.tracker.SetHostRemote(session.ID, chatID, msgID)
+			}
+		}
+		h.tracker.SetHostRemote(session.ID, chatID, cb.Message.MessageID)
+
+	case "pick":
+		h.handleHostPick(cb, uint(id))
+
+	case "reveal", "next", "finish", "refresh", "backroom":
+		h.handleHostAction(cb, action, uint(id))
+
+	default:
+		h.client.AnswerCallbackQuery(cb.ID, "Неизвестная команда", true)
+	}
+}
+
+func (h *UpdateHandler) handleHostPick(cb *CallbackQuery, sessionID uint) {
+	userID := cb.From.ID
+	chatID := cb.Message.Chat.ID
+
+	sessState, err := h.sessionSvc.GetSession(sessionID)
+	if err != nil {
+		h.client.AnswerCallbackQuery(cb.ID, "Сессия не найдена", true)
 		return
 	}
 
-	if action == "pick" {
-		h.handleHostPick(cb, uint(sessionID))
+	if sessState.HostID != h.hostID {
+		h.client.AnswerCallbackQuery(cb.ID, "Нет доступа к этой сессии", true)
 		return
 	}
 
-	h.handleHostAction(cb, action, uint(sessionID))
+	h.state.UpdateField(userID, func(s *UserState) {
+		s.State = StateHostRemote
+		s.SessionID = sessionID
+	})
+
+	text := h.tracker.buildHostControlText(sessState)
+	kb := HostControlKeyboard(sessionID, sessState.Status, sessState.CurrentQuestion, sessState.TotalQuestions)
+
+	msgID, _ := h.client.SendMessage(chatID, text, "HTML", kb)
+
+	h.tracker.SetHostRemote(sessionID, chatID, msgID)
+
+	h.client.AnswerCallbackQuery(cb.ID, "", false)
 }
 
 func (h *UpdateHandler) handleAnswerCallback(cb *CallbackQuery) {

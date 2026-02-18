@@ -51,9 +51,86 @@ func HostControlKeyboard(sessionID uint, status string, current, total int) *Inl
 
 	rows = append(rows, []InlineKeyboardButton{
 		{Text: "🔄 Обновить", CallbackData: fmt.Sprintf("host:refresh:%d", sessionID)},
+		{Text: "🔙 К комнате", CallbackData: fmt.Sprintf("host:backroom:%d", sessionID)},
 	})
 
 	return &InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+type RoomPickItem struct {
+	RoomID uint
+	Label  string
+}
+
+func HostRoomPickKeyboard(rooms []RoomPickItem) *InlineKeyboardMarkup {
+	var rows [][]InlineKeyboardButton
+	for _, r := range rooms {
+		rows = append(rows, []InlineKeyboardButton{
+			{Text: r.Label, CallbackData: fmt.Sprintf("host:room:%d", r.RoomID)},
+		})
+	}
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "➕ Новая комната", CallbackData: "host:newroom:0"},
+	})
+	return &InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+func HostRoomControlKeyboard(roomID uint, hasSession bool) *InlineKeyboardMarkup {
+	var rows [][]InlineKeyboardButton
+	if !hasSession {
+		rows = append(rows, []InlineKeyboardButton{
+			{Text: "📋 Выбрать квиз", CallbackData: fmt.Sprintf("host:pickquiz:%d:0", roomID)},
+		})
+	}
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "🔄 Обновить", CallbackData: fmt.Sprintf("host:roomrefresh:%d", roomID)},
+	})
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "❌ Закрыть комнату", CallbackData: fmt.Sprintf("host:closeroom:%d", roomID)},
+		{Text: "🔙 К комнатам", CallbackData: "host:rooms:0"},
+	})
+	return &InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+type QuizPickItem struct {
+	QuizID uint
+	Label  string
+}
+
+func HostQuizPickKeyboard(roomID uint, quizzes []QuizPickItem, page, totalPages int) *InlineKeyboardMarkup {
+	var rows [][]InlineKeyboardButton
+	for _, q := range quizzes {
+		rows = append(rows, []InlineKeyboardButton{
+			{Text: q.Label, CallbackData: fmt.Sprintf("host:startquiz:%d:%d", roomID, q.QuizID)},
+		})
+	}
+	if totalPages > 1 {
+		var navRow []InlineKeyboardButton
+		if page > 0 {
+			navRow = append(navRow, InlineKeyboardButton{
+				Text: "◀️", CallbackData: fmt.Sprintf("host:pickquiz:%d:%d", roomID, page-1),
+			})
+		}
+		navRow = append(navRow, InlineKeyboardButton{
+			Text: fmt.Sprintf("%d/%d", page+1, totalPages),
+			CallbackData: "host:noop:0",
+		})
+		if page < totalPages-1 {
+			navRow = append(navRow, InlineKeyboardButton{
+				Text: "▶️", CallbackData: fmt.Sprintf("host:pickquiz:%d:%d", roomID, page+1),
+			})
+		}
+		rows = append(rows, navRow)
+	}
+	rows = append(rows, []InlineKeyboardButton{
+		{Text: "🔙 К комнате", CallbackData: fmt.Sprintf("host:room:%d", roomID)},
+	})
+	return &InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+type SessionPickItem struct {
+	SessionID uint
+	Label     string
 }
 
 func HostSessionPickKeyboard(sessions []SessionPickItem) *InlineKeyboardMarkup {
@@ -64,11 +141,6 @@ func HostSessionPickKeyboard(sessions []SessionPickItem) *InlineKeyboardMarkup {
 		})
 	}
 	return &InlineKeyboardMarkup{InlineKeyboard: rows}
-}
-
-type SessionPickItem struct {
-	SessionID uint
-	Label     string
 }
 
 func AnswerKeyboard(sessionID uint, options []QuestionOption, selectedID uint) *InlineKeyboardMarkup {

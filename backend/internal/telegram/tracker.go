@@ -187,6 +187,7 @@ func (t *SessionTracker) sendOrEditHost(hr *HostRemoteInfo, text string, kb inte
 		if err := t.client.EditMessageText(hr.ChatID, hr.MessageID, text, "HTML", kb); err == nil {
 			return 0
 		}
+		t.client.DeleteMessage(hr.ChatID, hr.MessageID)
 	}
 	msgID, err := t.client.SendMessage(hr.ChatID, text, "HTML", kb)
 	if err != nil {
@@ -401,6 +402,7 @@ func (t *SessionTracker) sendOrEdit(p *ParticipantInfo, text string, kb interfac
 		if err := t.client.EditMessageText(p.ChatID, p.MessageID, text, "HTML", kb); err == nil {
 			return 0
 		}
+		t.client.DeleteMessage(p.ChatID, p.MessageID)
 	}
 	msgID, err := t.client.SendMessage(p.ChatID, text, "HTML", kb)
 	if err != nil {

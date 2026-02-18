@@ -31,6 +31,8 @@ type BotInstance struct {
 type BotManager struct {
 	db              *gorm.DB
 	sessionSvc      *services.SessionService
+	roomSvc         *services.RoomService
+	quizSvc         *services.QuizService
 	tgUserSvc       *services.TelegramUserService
 	hub             *ws.Hub
 	webhookBaseURL  string
@@ -47,6 +49,8 @@ type BotManager struct {
 func NewBotManager(
 	db *gorm.DB,
 	sessionSvc *services.SessionService,
+	roomSvc *services.RoomService,
+	quizSvc *services.QuizService,
 	tgUserSvc *services.TelegramUserService,
 	hub *ws.Hub,
 	webhookBaseURL string,
@@ -57,6 +61,8 @@ func NewBotManager(
 	return &BotManager{
 		db:              db,
 		sessionSvc:      sessionSvc,
+		roomSvc:         roomSvc,
+		quizSvc:         quizSvc,
 		tgUserSvc:       tgUserSvc,
 		hub:             hub,
 		webhookBaseURL:  webhookBaseURL,
@@ -135,7 +141,7 @@ func (m *BotManager) refreshTokens() {
 		client := NewClient(host.BotToken)
 		stateM := NewStateManager()
 		tracker := NewSessionTracker(client, stateM, m.sessionSvc, m.pollInterval)
-		handler := NewUpdateHandler(client, stateM, tracker, m.sessionSvc, m.tgUserSvc, m.hub, m.db, host.ID)
+		handler := NewUpdateHandler(client, stateM, tracker, m.sessionSvc, m.roomSvc, m.quizSvc, m.tgUserSvc, m.hub, m.db, host.ID)
 
 		bot := &BotInstance{
 			Token:   host.BotToken,
