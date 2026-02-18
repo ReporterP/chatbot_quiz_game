@@ -454,6 +454,21 @@ func (h *UpdateHandler) handleHostPick(cb *CallbackQuery, sessionID uint) {
 func (h *UpdateHandler) handleHostAction(cb *CallbackQuery, action string, sessionID uint) {
 	chatID := cb.Message.Chat.ID
 
+	broadcastToAll := func(msgType string, data interface{}, roomID uint) {
+		if h.hub != nil {
+			h.hub.Broadcast(sessionID, ws.WSMessage{Type: msgType, Data: data})
+			if roomID > 0 {
+				h.hub.BroadcastToRoom(roomID, ws.WSMessage{Type: msgType, Data: data})
+			}
+		}
+	}
+
+	sessForRoom, _ := h.sessionSvc.GetSession(sessionID)
+	var roomID uint
+	if sessForRoom != nil {
+		roomID = sessForRoom.RoomID
+	}
+
 	switch action {
 	case "reveal":
 		state, err := h.sessionSvc.RevealAnswer(sessionID, h.hostID)
@@ -461,9 +476,7 @@ func (h *UpdateHandler) handleHostAction(cb *CallbackQuery, action string, sessi
 			h.client.AnswerCallbackQuery(cb.ID, "Ошибка: "+err.Error(), true)
 			return
 		}
-		if h.hub != nil {
-			h.hub.Broadcast(sessionID, ws.WSMessage{Type: "revealed", Data: state})
-		}
+		broadcastToAll("revealed", state, roomID)
 		h.client.AnswerCallbackQuery(cb.ID, "👁 Ответ показан", false)
 
 	case "next":
@@ -476,9 +489,7 @@ func (h *UpdateHandler) handleHostAction(cb *CallbackQuery, action string, sessi
 		if state.Status == "finished" {
 			msgType = "finished"
 		}
-		if h.hub != nil {
-			h.hub.Broadcast(sessionID, ws.WSMessage{Type: msgType, Data: state})
-		}
+		broadcastToAll(msgType, state, roomID)
 		h.client.AnswerCallbackQuery(cb.ID, "➡️ Далее", false)
 
 	case "finish":
@@ -487,16 +498,13 @@ func (h *UpdateHandler) handleHostAction(cb *CallbackQuery, action string, sessi
 			h.client.AnswerCallbackQuery(cb.ID, "Ошибка: "+err.Error(), true)
 			return
 		}
-		if h.hub != nil {
-			h.hub.Broadcast(sessionID, ws.WSMessage{Type: "finished", Data: state})
-		}
+		broadcastToAll("finished", state, roomID)
 		h.client.AnswerCallbackQuery(cb.ID, "🏆 Квиз завершён", false)
 
 	case "refresh":
 		h.client.AnswerCallbackQuery(cb.ID, "🔄 Обновлено", false)
 	}
 
-	// Update the host control panel immediately
 	sessState, err := h.sessionSvc.GetSession(sessionID)
 	if err != nil {
 		return

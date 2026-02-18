@@ -174,6 +174,7 @@ func main() {
 			play.POST("/answer", playHandler.Answer)
 			play.GET("/state", playHandler.GetState)
 			play.PUT("/nickname", playHandler.UpdateNickname)
+			play.POST("/leave", playHandler.Leave)
 			play.GET("/my-result", playHandler.GetMyResult)
 		}
 

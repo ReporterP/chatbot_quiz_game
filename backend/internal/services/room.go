@@ -158,6 +158,10 @@ func (s *RoomService) UpdateNickname(memberID uint, webToken, nickname string) (
 	return &member, nil
 }
 
+func (s *RoomService) RemoveMember(memberID uint) error {
+	return s.db.Delete(&models.RoomMember{}, memberID).Error
+}
+
 func (s *RoomService) CloseRoom(roomID, hostID uint) error {
 	var room models.Room
 	if err := s.db.Where("id = ? AND host_id = ?", roomID, hostID).First(&room).Error; err != nil {

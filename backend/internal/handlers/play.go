@@ -245,6 +245,43 @@ func (h *PlayHandler) UpdateNickname(c *gin.Context) {
 	c.JSON(http.StatusOK, updated)
 }
 
+type PlayLeaveRequest struct {
+	Token    string `json:"token" binding:"required"`
+	RoomCode string `json:"room_code" binding:"required"`
+}
+
+func (h *PlayHandler) Leave(c *gin.Context) {
+	var req PlayLeaveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	room, err := h.roomService.GetRoomByCode(req.RoomCode)
+	if err != nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "room not found"})
+		return
+	}
+
+	member, err := h.roomService.GetMemberByToken(room.ID, req.Token)
+	if err != nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "member not found"})
+		return
+	}
+
+	if err := h.roomService.RemoveMember(member.ID); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	h.hub.BroadcastToRoom(room.ID, ws.WSMessage{
+		Type: "member_left",
+		Data: member,
+	})
+
+	c.JSON(http.StatusOK, MessageResponse{Message: "left room"})
+}
+
 func (h *PlayHandler) GetMyResult(c *gin.Context) {
 	sessionID, err := strconv.ParseUint(c.Query("session_id"), 10, 64)
 	if err != nil {

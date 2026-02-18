@@ -28,3 +28,6 @@ export const playUpdateNickname = (token, roomCode, nickname) =>
 
 export const playGetMyResult = (sessionId, memberId) =>
   playApi.get('/play/my-result', { params: { session_id: sessionId, member_id: memberId } });
+
+export const playLeave = (token, roomCode) =>
+  playApi.post('/play/leave', { token, room_code: roomCode });

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { playJoin, playReconnect, playAnswer, playGetState, playUpdateNickname } from '../api/play';
+import { playJoin, playReconnect, playAnswer, playGetState, playUpdateNickname, playLeave } from '../api/play';
 import useRoomWebSocket from '../hooks/useRoomWebSocket';
 import './PlayPage.css';
 
@@ -25,11 +25,11 @@ function generateToken() {
 }
 
 export default function PlayPage() {
-  const [searchParams] = useSearchParams();
-  const initialCode = searchParams.get('code') || '';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlCode = searchParams.get('code') || '';
 
   const [phase, setPhase] = useState('join');
-  const [code, setCode] = useState(initialCode);
+  const [code, setCode] = useState('');
   const [nickname, setNickname] = useState('');
   const [token, setToken] = useState('');
   const [room, setRoom] = useState(null);
@@ -44,12 +44,15 @@ export default function PlayPage() {
   const [newNick, setNewNick] = useState('');
   const [lightboxImg, setLightboxImg] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
+
   useEffect(() => {
     const stored = loadStorage();
     if (stored.token && stored.roomCode) {
       setToken(stored.token);
       setCode(stored.roomCode);
       tryReconnect(stored.token, stored.roomCode);
+    } else if (urlCode) {
+      setCode(urlCode);
     }
   }, []);
 
@@ -177,12 +180,23 @@ export default function PlayPage() {
     } catch { /* ignore */ }
   };
 
-  const handleLeave = () => {
+  const handleLeave = async () => {
+    try {
+      if (token && room?.code) {
+        await playLeave(token, room.code);
+      }
+    } catch { /* ignore */ }
     clearStorage();
+    setSearchParams({}, { replace: true });
     setPhase('join');
     setRoom(null);
     setMember(null);
     setSession(null);
+    setCode('');
+    setNickname('');
+    setToken('');
+    setLeaderboard([]);
+    resetAnswer();
   };
 
   if (phase === 'join') {
@@ -302,10 +316,12 @@ export default function PlayPage() {
 
           <div className="play-options">
             {question.options.map((opt) => {
+              const isMine = selectedOption === opt.id;
               let cls = 'play-option revealed';
               if (opt.is_correct) cls += ' correct';
-              else cls += ' wrong';
-              if (selectedOption === opt.id) cls += ' mine';
+              else if (isMine) cls += ' wrong';
+              else cls += ' neutral';
+              if (isMine) cls += ' mine';
               return <div key={opt.id} className={cls}>{opt.text}</div>;
             })}
           </div>
