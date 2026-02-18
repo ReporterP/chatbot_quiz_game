@@ -4,7 +4,7 @@ import "time"
 
 type Session struct {
 	ID              uint          `gorm:"primaryKey" json:"id"`
-	RoomID          uint          `gorm:"not null;index" json:"room_id"`
+	RoomID          uint          `gorm:"default:0;index" json:"room_id"`
 	QuizID          uint          `gorm:"not null" json:"quiz_id"`
 	Quiz            Quiz          `gorm:"foreignKey:QuizID" json:"quiz,omitempty"`
 	HostID          uint          `gorm:"not null;index" json:"host_id"`

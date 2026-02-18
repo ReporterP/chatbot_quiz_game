@@ -19,6 +19,17 @@ func NewRoomService(db *gorm.DB) *RoomService {
 	return &RoomService{db: db}
 }
 
+type RoomWithMembers struct {
+	models.Room
+	Members []models.RoomMember `json:"members"`
+}
+
+func (s *RoomService) loadMembers(room *models.Room) *RoomWithMembers {
+	var members []models.RoomMember
+	s.db.Where("room_id = ?", room.ID).Order("joined_at ASC").Find(&members)
+	return &RoomWithMembers{Room: *room, Members: members}
+}
+
 func (s *RoomService) CreateRoom(hostID uint, mode string) (*models.Room, error) {
 	if mode != models.RoomModeWeb && mode != models.RoomModeBot {
 		mode = models.RoomModeWeb
@@ -36,32 +47,35 @@ func (s *RoomService) CreateRoom(hostID uint, mode string) (*models.Room, error)
 	return &room, nil
 }
 
-func (s *RoomService) GetRoom(roomID uint) (*models.Room, error) {
+func (s *RoomService) GetRoom(roomID uint) (*RoomWithMembers, error) {
 	var room models.Room
-	if err := s.db.Preload("Members").First(&room, roomID).Error; err != nil {
+	if err := s.db.First(&room, roomID).Error; err != nil {
 		return nil, errors.New("room not found")
 	}
-	return &room, nil
+	return s.loadMembers(&room), nil
 }
 
-func (s *RoomService) GetRoomByCode(code string) (*models.Room, error) {
+func (s *RoomService) GetRoomByCode(code string) (*RoomWithMembers, error) {
 	var room models.Room
 	if err := s.db.Where("code = ? AND status = ?", code, models.RoomStatusActive).
-		Preload("Members").First(&room).Error; err != nil {
+		First(&room).Error; err != nil {
 		return nil, errors.New("room not found or closed")
 	}
-	return &room, nil
+	return s.loadMembers(&room), nil
 }
 
-func (s *RoomService) GetActiveRooms(hostID uint) ([]models.Room, error) {
+func (s *RoomService) GetActiveRooms(hostID uint) ([]RoomWithMembers, error) {
 	var rooms []models.Room
 	if err := s.db.Where("host_id = ? AND status = ?", hostID, models.RoomStatusActive).
-		Preload("Members").
 		Order("created_at DESC").
 		Find(&rooms).Error; err != nil {
 		return nil, err
 	}
-	return rooms, nil
+	result := make([]RoomWithMembers, len(rooms))
+	for i := range rooms {
+		result[i] = *s.loadMembers(&rooms[i])
+	}
+	return result, nil
 }
 
 func (s *RoomService) GetCurrentSession(roomID uint) (*models.Session, error) {
@@ -88,7 +102,7 @@ func (s *RoomService) JoinRoom(code, nickname, webToken string, telegramID int64
 				existing.Nickname = nickname
 				s.db.Save(&existing)
 			}
-			return &RoomJoinResult{Room: *room, Member: existing, IsRejoin: true}, nil
+			return &RoomJoinResult{Room: room.Room, Member: existing, IsRejoin: true}, nil
 		}
 	}
 	if telegramID > 0 {
@@ -98,7 +112,7 @@ func (s *RoomService) JoinRoom(code, nickname, webToken string, telegramID int64
 				existing.Nickname = nickname
 				s.db.Save(&existing)
 			}
-			return &RoomJoinResult{Room: *room, Member: existing, IsRejoin: true}, nil
+			return &RoomJoinResult{Room: room.Room, Member: existing, IsRejoin: true}, nil
 		}
 	}
 
@@ -113,7 +127,7 @@ func (s *RoomService) JoinRoom(code, nickname, webToken string, telegramID int64
 		return nil, fmt.Errorf("failed to join room: %w", err)
 	}
 
-	return &RoomJoinResult{Room: *room, Member: member}, nil
+	return &RoomJoinResult{Room: room.Room, Member: member}, nil
 }
 
 func (s *RoomService) Reconnect(webToken, code string) (*RoomJoinResult, error) {
@@ -128,7 +142,7 @@ func (s *RoomService) Reconnect(webToken, code string) (*RoomJoinResult, error) 
 		return nil, errors.New("member not found")
 	}
 
-	return &RoomJoinResult{Room: *room, Member: member, IsRejoin: true}, nil
+	return &RoomJoinResult{Room: room.Room, Member: member, IsRejoin: true}, nil
 }
 
 func (s *RoomService) UpdateNickname(memberID uint, webToken, nickname string) (*models.RoomMember, error) {
@@ -200,10 +214,4 @@ type RoomJoinResult struct {
 	Room     models.Room       `json:"room"`
 	Member   models.RoomMember `json:"member"`
 	IsRejoin bool              `json:"is_rejoin"`
-}
-
-type RoomState struct {
-	Room           models.Room         `json:"room"`
-	Members        []models.RoomMember `json:"members"`
-	CurrentSession *SessionState       `json:"current_session,omitempty"`
 }

@@ -3,15 +3,13 @@ package models
 import "time"
 
 type Room struct {
-	ID        uint         `gorm:"primaryKey" json:"id"`
-	HostID    uint         `gorm:"not null;index" json:"host_id"`
-	Host      Host         `gorm:"foreignKey:HostID;constraint:OnDelete:CASCADE" json:"-"`
-	Code      string       `gorm:"size:6;index" json:"code"`
-	Mode      string       `gorm:"size:10;not null;default:'web'" json:"mode"`
-	Status    string       `gorm:"size:20;not null;default:'active'" json:"status"`
-	Members   []RoomMember `gorm:"foreignKey:RoomID" json:"members,omitempty"`
-	Sessions  []Session    `gorm:"foreignKey:RoomID" json:"sessions,omitempty"`
-	CreatedAt time.Time    `json:"created_at"`
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	HostID    uint      `gorm:"not null;index" json:"host_id"`
+	Host      Host      `gorm:"foreignKey:HostID;constraint:OnDelete:CASCADE" json:"-"`
+	Code      string    `gorm:"size:6;index" json:"code"`
+	Mode      string    `gorm:"size:10;not null;default:'web'" json:"mode"`
+	Status    string    `gorm:"size:20;not null;default:'active'" json:"status"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 const (

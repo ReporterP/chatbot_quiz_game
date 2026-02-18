@@ -45,7 +45,7 @@ func AutoMigrate(db *gorm.DB) {
 		IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sessions')
 		   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sessions' AND column_name = 'room_id')
 		THEN
-			ALTER TABLE sessions ADD COLUMN room_id bigint NOT NULL DEFAULT 0;
+			ALTER TABLE sessions ADD COLUMN room_id bigint DEFAULT 0;
 		END IF;
 	END $$;`)
 
@@ -55,12 +55,16 @@ func AutoMigrate(db *gorm.DB) {
 		IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'participants')
 		   AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'participants' AND column_name = 'member_id')
 		THEN
-			ALTER TABLE participants ADD COLUMN member_id bigint NOT NULL DEFAULT 0;
+			ALTER TABLE participants ADD COLUMN member_id bigint DEFAULT 0;
 		END IF;
 	END $$;`)
 
 	// Drop old unique index on participants that requires telegram_id
 	db.Exec("DROP INDEX IF EXISTS idx_session_telegram")
+
+	// Relax NOT NULL on room_id/member_id if it was set by a previous migration
+	db.Exec("ALTER TABLE sessions ALTER COLUMN room_id DROP NOT NULL")
+	db.Exec("ALTER TABLE participants ALTER COLUMN member_id DROP NOT NULL")
 
 	// Add mode to quizzes if missing
 	db.Exec(`DO $$
